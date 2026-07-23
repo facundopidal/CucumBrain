@@ -1,5 +1,17 @@
 # Bitácora de Cambios - CucumBrain
 
+## [2026-07-22] Preparación de Repositorio Público y Sanitización de Privacidad (Fast-Track)
+- **Qué se hizo:** Se sanitizó el repositorio local para su publicación pública en GitHub. Se añadieron las carpetas `vault/` y `temp/` a `.gitignore`, se desvinculó la Bóveda del control de versiones sin afectar los archivos locales, se creó un `README.md` exhaustivo y profesional para mostrar a reclutadores, y se re-inicializó el historial local de Git en un commit inicial impecable (`feat: initial commit of CucumBrain RAG Agent`).
+- **Decisiones clave y autoría:**
+  - *Sanitización Completa de Historial de Git (Usuario):* Al no haber sido subido aún a GitHub, se reinició la rama de Git a una versión limpia raíz para garantizar que ninguna nota personal commiteada en el pasado o clave de API permanezca expuesta en commits anteriores.
+  - *Preservación de Notas Locales (Consenso):* `git rm -r --cached vault` desvincula el rastreo de Git manteniendo todos los archivos de notas de Obsidian 100% intactos en el disco rígido local.
+  - *Creación de Documentación de Presentación (Consenso):* Se redactó un `README.md` técnico y detallado que documenta la arquitectura del proyecto, diagramas de flujo, características de RAG/Tool Calling, guía de instalación y comandos principales.
+- **Por qué (Justificación humana):** Prepara el proyecto para ser compartido públicamente con startups y reclutadores, protegiendo al 100% la privacidad de las notas e información personal del usuario sin perder ninguna funcionalidad ni código.
+- **Archivos afectados:**
+  - [.gitignore](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/.gitignore)
+  - [README.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/README.md)
+  - [docs/bitacora.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/docs/bitacora.md)
+
 ## [2026-07-20] Consultas Estructuradas y Edición de Metadatos (Fase 5 - Fast-Track)
 - **Qué se hizo:** Se dotó al agente de herramientas para consultar SQLite por metadatos (`queryNotesByMetadata`), modificar el YAML frontmatter sin alterar el texto (`updateNoteMetadata`), reemplazar secciones Markdown completas (`replaceNoteSection`), leer notas completas por título (`readNote`) y eliminar notas físicamente (`deleteNote`). En el bot, se implementó `replyLongMessage` para dividir respuestas mayores a 4000 caracteres. También se incrementó el límite de turnos secuenciales a 8 y se mejoró el manejador de límite alcanzado.
 - **Decisiones clave y autoría:**
