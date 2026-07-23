@@ -1,0 +1,23 @@
+# Glosario y Reglas de Negocio - CucumBrain
+
+## Glosario del Dominio
+- **Cerebro (Orquestador Central / Gestor de Pensamientos):** El asistente de inteligencia artificial y orquestador central que procesa las ideas y notas del usuario.
+- **Bóveda (Notas de Obsidian):** El directorio local de archivos de texto estructurado donde el usuario registra sus conocimientos, tareas, proyectos e ideas.
+- **Índice Relacional:** La representación organizada en base de datos de las notas, sus tipos, estados de avance y conexiones lógicas.
+- **Enlaces Relacionados (WikiLinks):** Conexiones explícitas de una nota hacia otra usando la sintaxis de doble corchete, representando un grafo de pensamientos interconectados.
+- **Enlace Huérfano (Stub):** Una nota de destino que ha sido enlazada desde otra nota, pero cuyo archivo físico y contenido aún no han sido creados en la Bóveda.
+- **Vigilante (Watcher):** El proceso encargado de monitorear en tiempo real la Bóveda de notas para detectar cambios físicos (creaciones, modificaciones o eliminaciones) y actualizar el Índice Relacional en consecuencia.
+- **Canal de Interacción:** La interfaz conversacional móvil que permite interactuar con el Cerebro de forma remota y segura.
+- **Nota Núcleo (Incubadora):** El documento consolidado que funciona como punto de entrada y almacén para ideas de baja madurez o pensamientos pasajeros, evitando la dispersión en archivos individuales vacíos.
+- **Maduración de Idea:** El proceso de transferir una idea contenida en la Nota Núcleo hacia su propio archivo independiente una vez que cobra importancia, volumen o recibe múltiples conexiones lógicas.
+
+## Reglas del Negocio
+- **Privacidad del Canal:** El asistente conversacional solo responderá a las consultas iniciadas por el dueño legítimo de las notas. Cualquier intento de interacción externa debe ser ignorado silenciosamente sin dar confirmación de existencia del bot.
+- **Estructura Estándar de Notas:** Toda nota en la Bóveda puede tener una cabecera de datos que especifique su tipo, importancia, estado de avance, fecha de creación y conexiones. Si una nota carece de esta cabecera, se asume que es una "idea" en estado "incubando" con importancia media.
+- **Consistencia del Grafo:** Si una nota A se enlaza con una nota B y la nota B no existe físicamente, el Cerebro registrará la existencia de la nota B como un "enlace huérfano" en su Índice Relacional para mantener el grafo conectado. Si el usuario escribe físicamente la nota B en el futuro, los metadatos huérfanos se actualizarán de forma transparente con el contenido real.
+- **Límites de Lectura:** El Cerebro tiene prohibido leer dibujos vectoriales o archivos gráficos (como bocetos o mapas mentales visuales) para evitar sobrecargas de procesamiento. Solo indexa información textual y metadatos explícitos.
+- **Control de Ventana de Contexto:** El Cerebro resumirá o limitará la cantidad de contenido de notas que procesa en una sola consulta para evitar desbordar los límites de los proveedores externos de inferencia de IA.
+- **Límites Cognitivos en la Toma de Decisiones:** El Cerebro debe estructurar las opciones presentadas al usuario limitando la carga cognitiva a un máximo de cuatro alternativas simultáneas. Si existen más de cuatro caminos posibles, el Cerebro debe agruparlos de forma lógica o proveer un acompañamiento visual/resumido.
+- **Trazabilidad de Ideas Descartadas:** Al responder consultas de toma de decisiones o planificaciones, el Cerebro debe buscar activamente en su historial o notas ideas similares que hayan sido previamente marcadas como descartadas o pausadas, indicando explícitamente *el porqué* del descarte para evitar la reevaluación repetitiva de caminos inviables.
+- **Naturaleza Zettelkasten y Graduación de Ideas Pasajeras:** El sistema opera nativamente bajo un modelo de notas individuales, atómicas y desconectadas para albergar reflexiones de lecturas, conceptos técnicos, o temas no relacionados a la tecnología (como literatura). El uso de la Nota Núcleo (Incubadora) se reserva **exclusivamente para ideas pasajeras de muy baja madurez o bocetos rápidos** para evitar la fricción inicial. Cualquier nota o reflexión con un foco o desarrollo propio debe crearse directamente como un archivo individual e independiente. Las ideas de la Nota Núcleo solo se graduarán a su propia nota cuando acumulen suficiente contexto o relaciones.
+- **Polimorfismo del Mensaje de Voz:** El Cerebro tratará las notas de voz recibidas de forma idéntica a los mensajes de texto tras ser transcritas. Esto permite usar mensajes de voz tanto para consultas libres (que no alteran el disco) como para invocar herramientas de creación, edición y enlace de notas de forma transparente.

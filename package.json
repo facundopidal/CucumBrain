@@ -1,0 +1,21 @@
+{
+  "name": "cucumbrain",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "db:init": "node src/database/init.js",
+    "start": "node src/index.js",
+    "query": "node src/agent/test-query.js",
+    "canvas:convert": "node src/utils/canvas-converter.js",
+    "test:tools": "node src/agent/test-tools-verification.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "better-sqlite3": "^11.10.0",
+    "chokidar": "^3.6.0",
+    "dotenv": "^17.4.2",
+    "gray-matter": "^4.0.3",
+    "telegraf": "^4.16.3"
+  }
+}
