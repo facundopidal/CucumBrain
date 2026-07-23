@@ -2,6 +2,8 @@
 
 > **Personal RAG Agent & Knowledge Orchestrator for Obsidian via Telegram**
 
+[Read in English](README.md) | [Leer en Español](README_ES.md)
+
 CucumBrain is a lightweight, self-hosted AI assistant designed to bridge local **Obsidian Vaults** with a private **Telegram Bot**. It continuously indexes Markdown notes into a local SQLite database, performs Retrieval-Augmented Generation (RAG), and equips the LLM with physical tools to read, create, edit, and link notes in real time.
 
 Designed to run 24/7 on resource-constrained hardware (e.g., netbooks or Raspberry Pi with 2GB RAM) using zero heavy vector databases.
