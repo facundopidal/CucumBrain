@@ -4,6 +4,37 @@ import db from '../database/db.js';
 import { downloadTelegramFile, cleanTempFile } from '../utils/audio.js';
 import { transcribeAudio } from '../utils/transcriber.js';
 
+export function markdownToTelegramHtml(markdown) {
+  if (!markdown) return '';
+  let html = markdown;
+
+  // 1. Escapar caracteres HTML reservados para evitar sintaxis inválida
+  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // 2. Convertir bloques de código ```code```
+  html = html.replace(/```(?:[a-z]+)?\n?([\s\S]*?)```/gi, (match, code) => {
+    return `<pre>${code}</pre>`;
+  });
+
+  // 3. Convertir código inline `code`
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // 4. Convertir negrita **texto** o __texto__
+  html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+  html = html.replace(/__(.*?)__/g, '<b>$1</b>');
+
+  // 5. Convertir cursiva *texto*
+  html = html.replace(/(?<!\*)\*([^\*\n]+)\*(?!\*)/g, '<i>$1</i>');
+
+  // 6. Convertir encabezados #, ##, ### a negrita destacada
+  html = html.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>');
+
+  // 7. Resaltar WikiLinks [[Nota]]
+  html = html.replace(/\[\[(.*?)\]\]/g, '<b>[[ $1 ]]</b>');
+
+  return html;
+}
+
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const allowedUser = process.env.TELEGRAM_ALLOWED_USER_ID;
 
@@ -52,36 +83,6 @@ if (!botToken) {
     }
   });
 
-export function markdownToTelegramHtml(markdown) {
-  if (!markdown) return '';
-  let html = markdown;
-
-  // 1. Escapar caracteres HTML reservados para evitar sintaxis inválida
-  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  // 2. Convertir bloques de código ```code```
-  html = html.replace(/```(?:[a-z]+)?\n?([\s\S]*?)```/gi, (match, code) => {
-    return `<pre>${code}</pre>`;
-  });
-
-  // 3. Convertir código inline `code`
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-  // 4. Convertir negrita **texto** o __texto__
-  html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-  html = html.replace(/__(.*?)__/g, '<b>$1</b>');
-
-  // 5. Convertir cursiva *texto*
-  html = html.replace(/(?<!\*)\*([^\*\n]+)\*(?!\*)/g, '<i>$1</i>');
-
-  // 6. Convertir encabezados #, ##, ### a negrita destacada
-  html = html.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>');
-
-  // 7. Resaltar WikiLinks [[Nota]]
-  html = html.replace(/\[\[(.*?)\]\]/g, '<b>[[ $1 ]]</b>');
-
-  return html;
-}
 
 async function replyLongMessage(ctx, text, options = {}) {
   if (!text || !text.trim()) {
