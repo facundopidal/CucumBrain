@@ -52,21 +52,67 @@ if (!botToken) {
     }
   });
 
+export function markdownToTelegramHtml(markdown) {
+  if (!markdown) return '';
+  let html = markdown;
+
+  // 1. Escapar caracteres HTML reservados para evitar sintaxis inválida
+  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // 2. Convertir bloques de código ```code```
+  html = html.replace(/```(?:[a-z]+)?\n?([\s\S]*?)```/gi, (match, code) => {
+    return `<pre>${code}</pre>`;
+  });
+
+  // 3. Convertir código inline `code`
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // 4. Convertir negrita **texto** o __texto__
+  html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+  html = html.replace(/__(.*?)__/g, '<b>$1</b>');
+
+  // 5. Convertir cursiva *texto*
+  html = html.replace(/(?<!\*)\*([^\*\n]+)\*(?!\*)/g, '<i>$1</i>');
+
+  // 6. Convertir encabezados #, ##, ### a negrita destacada
+  html = html.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>');
+
+  // 7. Resaltar WikiLinks [[Nota]]
+  html = html.replace(/\[\[(.*?)\]\]/g, '<b>[[ $1 ]]</b>');
+
+  return html;
+}
+
 async function replyLongMessage(ctx, text, options = {}) {
   if (!text || !text.trim()) {
     text = '✅ Operación completada.';
   }
-  const MAX_LENGTH = 4000;
-  if (text.length <= MAX_LENGTH) {
-    return ctx.reply(text, options);
+
+  const sendChunk = async (plainChunk, htmlChunk) => {
+    try {
+      await ctx.reply(htmlChunk, { parse_mode: 'HTML', ...options });
+    } catch (err) {
+      console.warn('[Bot] Falló el formato HTML en Telegram, enviando como texto plano:', err.message);
+      await ctx.reply(plainChunk, options);
+    }
+  };
+
+  const MAX_LENGTH = 3800;
+  const htmlFormatted = markdownToTelegramHtml(text);
+
+  if (text.length <= MAX_LENGTH && htmlFormatted.length <= MAX_LENGTH) {
+    return sendChunk(text, htmlFormatted);
   }
 
-  const chunks = [];
+  const chunksText = [];
+  const chunksHtml = [];
   let currentText = text;
+  let currentHtml = htmlFormatted;
 
   while (currentText.length > 0) {
     if (currentText.length <= MAX_LENGTH) {
-      chunks.push(currentText);
+      chunksText.push(currentText);
+      chunksHtml.push(currentHtml);
       break;
     }
 
@@ -75,12 +121,15 @@ async function replyLongMessage(ctx, text, options = {}) {
       cutIndex = MAX_LENGTH;
     }
 
-    chunks.push(currentText.substring(0, cutIndex));
+    chunksText.push(currentText.substring(0, cutIndex));
+    chunksHtml.push(currentHtml.substring(0, cutIndex));
+
     currentText = currentText.substring(cutIndex).trimStart();
+    currentHtml = currentHtml.substring(cutIndex).trimStart();
   }
 
-  for (const chunk of chunks) {
-    await ctx.reply(chunk, options);
+  for (let i = 0; i < chunksText.length; i++) {
+    await sendChunk(chunksText[i], chunksHtml[i]);
   }
 }
 

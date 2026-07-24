@@ -1,5 +1,15 @@
 # Bitácora de Cambios - CucumBrain
 
+## [2026-07-24] Formateo Visual de Mensajes y Parser Markdown-a-HTML en Telegram (Fast-Track)
+- **Qué se hizo:** Se implementó una función conversora `markdownToTelegramHtml` en `src/bot/bot.js` que transforma la sintaxis de Markdown generada por el LLM o leída de las notas (`**negrita**`, `` `código` ``, `# encabezados`, `[[WikiLinks]]`) a etiquetas HTML nativas de Telegram (`<b>`, `<code>`, `<pre>`), y se le agregó un mecanismo de captura de excepciones que realiza un fallback automático a texto plano si Telegram rechaza el formato.
+- **Decisiones clave y autoría:**
+  - *Adopción de HTML con Fallback Automático (Usuario):* Se prefirió `parse_mode: 'HTML'` por sobre `MarkdownV2` debido a la extrema fragilidad de este último ante caracteres como `-`, `_`, `[`, `]`. El fallback a texto plano garantiza que el bot nunca falle ni se caiga.
+  - *Resaltado Visual de WikiLinks (Consenso):* Los enlaces a notas tipo `[[Mi Nota]]` se formatean automáticamente como `<b>[[ Mi Nota ]]</b>` para destacar visualmente las conexiones relacionales en la interfaz del chat.
+- **Por qué (Justificación humana):** Mejora significativamente la experiencia visual del usuario en Telegram al leer respuestas del bot, eliminando la sintaxis cruda y manteniendo una presentación elegante y legible.
+- **Archivos afectados:**
+  - [src/bot/bot.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/bot/bot.js)
+  - [docs/bitacora.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/docs/bitacora.md)
+
 ## [2026-07-22] Preparación de Repositorio Público y Sanitización de Privacidad (Fast-Track)
 - **Qué se hizo:** Se sanitizó el repositorio local para su publicación pública en GitHub. Se añadieron las carpetas `vault/` y `temp/` a `.gitignore`, se desvinculó la Bóveda del control de versiones sin afectar los archivos locales, se creó un `README.md` exhaustivo y profesional en inglés junto a su versión completa en español (`README_ES.md`) con un selector de idiomas, y se re-inicializó el historial local de Git en un commit inicial impecable (`feat: initial commit of CucumBrain RAG Agent`).
 - **Decisiones clave y autoría:**
