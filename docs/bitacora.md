@@ -1,5 +1,18 @@
 # Bitácora de Cambios - CucumBrain
 
+## [2026-07-27] Despliegue en Producción y Gestión de Procesos PM2 (Fase 7 - Cierre de Roadmap)
+- **Qué se hizo:** Se preparó la arquitectura completa de despliegue headless para la Samsung Netbook (Windows x86 / 32-bits). Se creó el archivo de configuración `ecosystem.config.cjs` para PM2 con límites de memoria ajustados a 300 MB, reinicio automático y logging estructurado. Se agregaron los comandos del ciclo de vida `npm run pm2:*` en `package.json` y se redactó una guía detallada paso a paso en `docs/DEPLOYMENT.md` para configurar el auto-arranque sin consola mediante `pm2-windows-startup`.
+- **Decisiones clave y autoría:**
+  - *Gestión Headless con PM2 (Consenso):* Se eligió PM2 como gestor de procesos por su bajísimo consumo de recursos y capacidad de autoreinicio transparente ante cualquier falla de red o caídas.
+  - *Límite Racional de Memoria (Consenso):* `max_memory_restart: '300M'` asegura que la aplicación nunca sature la memoria RAM limitada de la Netbook de 32 bits.
+  - *Documentación de Despliegue Headless (Usuario):* Se redactó `docs/DEPLOYMENT.md` con las instrucciones exactas para que el servicio arranque 24/7 de forma totalmente transparente al encender el equipo.
+- **Por qué (Justificación humana):** Concluye oficialmente el roadmap del proyecto CucumBrain, dejando una aplicación ligera, robusta y lista para ser ejecutada en producción desatendida.
+- **Archivos afectados:**
+  - [ecosystem.config.cjs](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/ecosystem.config.cjs)
+  - [package.json](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/package.json)
+  - [docs/DEPLOYMENT.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/docs/DEPLOYMENT.md)
+  - [docs/bitacora.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/docs/bitacora.md)
+
 ## [2026-07-27] Conectividad Semántica y Grafo Relacional (Fase 6 - Fast-Track)
 - **Qué se hizo:** Se integró el modelo mental de taxonomía de vida del usuario dentro de las instrucciones del sistema (`systemInstruction` en `src/agent/agent.js`), estructurando las relaciones entre Proyectos Activos, Consultora Freelance, Ideas SaaS, Economía/Finanzas y Bloqueos de Tiempo. Se obligó al agente a realizar un enlazado proactivo automático ejecutando `connectNotes` (`[[WikiLinks]]`) y a verificar la existencia de ideas previas en incubación/pausa antes de clasificar pensamientos como nuevas ideas.
 - **Decisiones clave y autoría:**

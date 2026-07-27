@@ -8,7 +8,11 @@
     "start": "node src/index.js",
     "query": "node src/agent/test-query.js",
     "canvas:convert": "node src/utils/canvas-converter.js",
-    "test:tools": "node src/agent/test-tools-verification.js"
+    "test:tools": "node src/agent/test-tools-verification.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop cucumbrain",
+    "pm2:restart": "pm2 restart cucumbrain",
+    "pm2:logs": "pm2 logs cucumbrain"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
