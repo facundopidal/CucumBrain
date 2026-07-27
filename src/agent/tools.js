@@ -4,8 +4,9 @@ import matter from 'gray-matter';
 import db from '../database/db.js';
 import { indexNote, deleteNote as removeNoteFromIndex, slugify } from '../database/indexer.js';
 
-const NOTES_PATH = process.env.NOTES_PATH 
-  ? path.resolve(process.env.NOTES_PATH) 
+const targetPath = process.env.NOTES_PATH || process.env.OBSIDIAN_VAULT_PATH;
+const NOTES_PATH = targetPath 
+  ? path.resolve(targetPath) 
   : path.resolve('./vault');
 
 // Definición unificada de esquemas de herramientas usando tipos lowercase por defecto (OpenAI standard)

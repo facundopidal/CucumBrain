@@ -3,9 +3,9 @@ import path from 'path';
 import fs from 'fs';
 import { indexNote, deleteNote } from '../database/indexer.js';
 
-// Directorio a vigilar (prioridad: variable de entorno NOTES_PATH, fallback: ./vault)
-const notesPath = process.env.NOTES_PATH 
-  ? path.resolve(process.env.NOTES_PATH) 
+const targetPath = process.env.NOTES_PATH || process.env.OBSIDIAN_VAULT_PATH;
+const notesPath = targetPath 
+  ? path.resolve(targetPath) 
   : path.resolve('./vault');
 
 // Crear la carpeta vault si no existe

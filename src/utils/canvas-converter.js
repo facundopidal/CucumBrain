@@ -4,9 +4,9 @@ import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import { callLLM } from '../agent/agent.js';
 
-// Directorio de notas (prioridad: NOTES_PATH, fallback: ./vault)
-const notesPath = process.env.NOTES_PATH 
-  ? path.resolve(process.env.NOTES_PATH) 
+const targetPath = process.env.NOTES_PATH || process.env.OBSIDIAN_VAULT_PATH;
+const notesPath = targetPath 
+  ? path.resolve(targetPath) 
   : path.resolve('./vault');
 
 /**
