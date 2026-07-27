@@ -1,5 +1,16 @@
 # Bitácora de Cambios - CucumBrain
 
+## [2026-07-27] Conectividad Semántica y Grafo Relacional (Fase 6 - Fast-Track)
+- **Qué se hizo:** Se integró el modelo mental de taxonomía de vida del usuario dentro de las instrucciones del sistema (`systemInstruction` en `src/agent/agent.js`), estructurando las relaciones entre Proyectos Activos, Consultora Freelance, Ideas SaaS, Economía/Finanzas y Bloqueos de Tiempo. Se obligó al agente a realizar un enlazado proactivo automático ejecutando `connectNotes` (`[[WikiLinks]]`) y a verificar la existencia de ideas previas en incubación/pausa antes de clasificar pensamientos como nuevas ideas.
+- **Decisiones clave y autoría:**
+  - *Taxonomía Estructurada de Dominios (Usuario):* Se explicitó en la instrucción del sistema el mapa conceptual que conecta desarrollos activos (GymChart, Cerebro, Shim) con la línea comercial de la Consultora y las metas financieras/tiempo.
+  - *Enlazado Proactivo Obligatorio (Consenso):* Se fijó la regla 9 para que el bot llame de manera autónoma a `connectNotes` al crear o actualizar notas, tejiendo la red de enlaces relacionales de Obsidian automáticamente.
+  - *Control de Duplicados e Histórico (Consenso):* Se instruyó la búsqueda previa de notas históricas pausadas o en incubación antes de registrar duplicados.
+- **Por qué (Justificación humana):** Eleva la inteligencia relacional de Cerebro para que actúe como un verdadero asistente contextual que vincula proyectos con sus razones de negocio y limitaciones de tiempo sin intervención manual.
+- **Archivos afectados:**
+  - [src/agent/agent.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/agent/agent.js)
+  - [docs/bitacora.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/docs/bitacora.md)
+
 ## [2026-07-24] Formateo Visual de Mensajes y Parser Markdown-a-HTML en Telegram (Fast-Track)
 - **Qué se hizo:** Se implementó una función conversora `markdownToTelegramHtml` en `src/bot/bot.js` que transforma la sintaxis de Markdown generada por el LLM o leída de las notas (`**negrita**`, `` `código` ``, `# encabezados`, `[[WikiLinks]]`) a etiquetas HTML nativas de Telegram (`<b>`, `<code>`, `<pre>`), y se le agregó un mecanismo de captura de excepciones que realiza un fallback automático a texto plano si Telegram rechaza el formato.
 - **Decisiones clave y autoría:**
