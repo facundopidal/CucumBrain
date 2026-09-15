@@ -21,6 +21,10 @@ export const tools = [
           type: 'string',
           description: 'El título de la nota (se usará como nombre de archivo).'
         },
+        folder: {
+          type: 'string',
+          description: 'Carpeta o subdirectorio relativo donde se creará la nota (ej: "Proyectos/GymChart"). Por defecto es la raíz.'
+        },
         content: {
           type: 'string',
           description: 'El contenido principal de la nota en formato Markdown.'
@@ -186,19 +190,20 @@ export const tools = [
 
 // Implementación de las funciones locales que ejecuta el agente
 export const toolActions = {
-  createNote: async ({ title, content, type_id = 'idea', status = 'incubating', importance = 3 }) => {
+  createNote: async ({ title, content, type_id = 'idea', status = 'incubating', importance = 3, folder = '' }) => {
     try {
       if (!title) {
         return { success: false, error: 'El título es requerido.' };
       }
 
-      // Asegurar que la carpeta vault exista
-      if (!fs.existsSync(NOTES_PATH)) {
-        fs.mkdirSync(NOTES_PATH, { recursive: true });
+      // Ensure the target directory exists
+      const targetDir = path.join(NOTES_PATH, folder);
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
       }
 
       const fileName = `${title}.md`;
-      const filePath = path.join(NOTES_PATH, fileName);
+      const filePath = path.join(targetDir, fileName);
 
       // Seguridad: Validar que no se salga de NOTES_PATH
       const resolvedPath = path.resolve(filePath);
@@ -345,8 +350,18 @@ export const toolActions = {
 
   listNotes: async () => {
     try {
-      const notes = db.prepare('SELECT id, title, type_id, status, importance FROM notes WHERE status != \'stub\'').all();
-      return { success: true, notes };
+      const notes = db.prepare('SELECT id, title, type_id, status, importance, file_path FROM notes WHERE status != \'stub\'').all();
+      const mappedNotes = notes.map(note => {
+        let folder = '';
+        if (note.file_path) {
+           const relPath = path.relative(NOTES_PATH, note.file_path);
+           folder = path.dirname(relPath);
+           if (folder === '.') folder = '/';
+        }
+        delete note.file_path;
+        return { ...note, folder };
+      });
+      return { success: true, notes: mappedNotes };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -354,7 +369,7 @@ export const toolActions = {
 
   queryNotesByMetadata: async ({ type_id, status, importance }) => {
     try {
-      let query = 'SELECT id, title, type_id, status, importance FROM notes WHERE status != \'stub\'';
+      let query = 'SELECT id, title, type_id, status, importance, file_path FROM notes WHERE status != \'stub\'';
       const params = [];
       if (type_id) {
         query += ' AND type_id = ?';
@@ -369,7 +384,17 @@ export const toolActions = {
         params.push(importance);
       }
       const notes = db.prepare(query).all(...params);
-      return { success: true, notes };
+      const mappedNotes = notes.map(note => {
+        let folder = '';
+        if (note.file_path) {
+           const relPath = path.relative(NOTES_PATH, note.file_path);
+           folder = path.dirname(relPath);
+           if (folder === '.') folder = '/';
+        }
+        delete note.file_path;
+        return { ...note, folder };
+      });
+      return { success: true, notes: mappedNotes };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -495,6 +520,13 @@ export const toolActions = {
         return { success: false, error: `El archivo físico de la nota "${title}" no existe.` };
       }
 
+      let folder = '';
+      if (note.file_path) {
+         const relPath = path.relative(NOTES_PATH, note.file_path);
+         folder = path.dirname(relPath);
+         if (folder === '.') folder = '/';
+      }
+
       const fileContent = fs.readFileSync(resolvedPath, 'utf-8');
       return {
         success: true,
@@ -503,6 +535,7 @@ export const toolActions = {
           type_id: note.type_id,
           status: note.status,
           importance: note.importance,
+          folder: folder,
           content: fileContent
         }
       };

@@ -1,6 +1,12 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import path from 'path';
 import db from '../database/db.js';
 import { toolActions, getToolsSchemaForProvider } from './tools.js';
+
+const targetPath = process.env.NOTES_PATH || process.env.OBSIDIAN_VAULT_PATH;
+const NOTES_PATH = targetPath
+  ? path.resolve(targetPath)
+  : path.resolve('./vault');
 
 // Lista de palabras vacías (stop words) comunes en español para limpiar las consultas
 const STOP_WORDS = new Set([
@@ -36,7 +42,7 @@ function searchNotes(message) {
   for (const word of words) {
     const queryTerm = `%${word}%`;
     const rows = db.prepare(`
-      SELECT id, title, type_id, status, content, importance 
+      SELECT id, title, type_id, status, content, importance, file_path
       FROM notes 
       WHERE status != 'stub' 
         AND (title LIKE ? OR content LIKE ? OR id LIKE ?)
@@ -328,13 +334,20 @@ export async function askAgent(userMessage) {
         noteBody = noteBody.substring(0, MAX_NOTE_CHARS) + '\n... [Contenido de nota truncado por límite de tamaño]';
       }
       
-      const formattedNote = `--- NOTA: ${note.title} (ID: ${note.id}, Tipo: ${note.type_id}) ---\n${noteBody}\n----------------------------`;
+      let folderPath = '';
+      if (note.file_path) {
+          const relPath = path.relative(NOTES_PATH, note.file_path);
+          folderPath = path.dirname(relPath);
+          if (folderPath === '.') folderPath = '/';
+      }
+
+      const formattedNote = `--- NOTA: ${note.title} (ID: ${note.id}, Tipo: ${note.type_id}, Carpeta: ${folderPath}) ---\n${noteBody}\n----------------------------`;
       
       if (currentLength + formattedNote.length > MAX_TOTAL_CHARS) {
         const remainingSpace = MAX_TOTAL_CHARS - currentLength;
         if (remainingSpace > 100) {
           const cutNoteBody = noteBody.substring(0, remainingSpace - 100) + '\n... [Contenido de nota truncado para ajustar al contexto global]';
-          accumulatedText.push(`--- NOTA: ${note.title} (ID: ${note.id}, Tipo: ${note.type_id}) ---\n${cutNoteBody}\n----------------------------`);
+          accumulatedText.push(`--- NOTA: ${note.title} (ID: ${note.id}, Tipo: ${note.type_id}, Carpeta: ${folderPath}) ---\n${cutNoteBody}\n----------------------------`);
         }
         break;
       }
@@ -382,15 +395,16 @@ Reglas críticas:
 5. Tienes herramientas a tu disposición (createNote, appendNoteContent, connectNotes, listNotes, queryNotesByMetadata, updateNoteMetadata, replaceNoteSection, readNote, deleteNote). Úsalas activamente en lugar de solo simular en texto que realizaste los cambios. Si necesitas leer el contenido completo de una nota específica que no viene en el contexto, usa readNote. Si el usuario te pide eliminar una nota, usa deleteNote.
 6. REGLA DE NO-CREACIÓN DE ÍNDICES: Está estrictamente prohibido crear notas físicas para actuar como listas, índices o resúmenes de otras notas (ej: "Proyectos Activos", "Lista de Ideas"), A MENOS que el usuario lo solicite explícitamente. Cuando el usuario pregunte por estados o listados, debes usar queryNotesByMetadata y responder directamente en el chat en texto.
 7. EDICIÓN LIMPIA Y METADATOS: Para cambiar estados de avance o categorías, usa updateNoteMetadata. Para actualizar listas o tablas existentes dentro de una nota, usa replaceNoteSection en lugar de anexar encabezados repetidos al final.
-8. MODELO MENTAL Y TAXONOMÍA DE DOMINIOS: Comprende la estructura de dominios del usuario:
+8. SEPARACIÓN DE CONTEXTO POR CARPETAS: Cada carpeta representa un proyecto o dominio diferente. Bajo NINGÚN CONCEPTO debes mezclar información, implementaciones o detalles de notas de diferentes carpetas a menos que el usuario lo solicite explícitamente. Las respuestas deben centrarse estrictamente en la carpeta/proyecto de interés.
+9. MODELO MENTAL Y TAXONOMÍA DE DOMINIOS: Comprende la estructura de dominios del usuario:
    - Proyectos Activos / Desarrollo: GymChart, Bot de WhatsApp (Cerebro), Supabase/Shim.
    - Consultora & Freelance: Automatizaciones, CRM pymes, demos comerciales.
    - Ideas & SaaS: Cotizador de software, bloqueador de reels, gestor de gastos.
    - Economía & Finanzas: Caucionador automático (IOL), presupuestos.
    - Bloqueos & Disponibilidad de Tiempo: Preocupaciones de carga laboral, metodologías de trabajo IA.
-9. ENLAZADO PROACTIVO DE GRAFO: Al crear o actualizar notas sobre proyectos o conceptos, estás OBLIGADO a identificar relaciones entre dominios (ej. conectar un proyecto con su idea origen o bloqueo de tiempo) y ejecutar la herramienta connectNotes para tejer enlaces [[WikiLinks]] automáticamente en la Bóveda.
-10. PREVENCIÓN DE IDEAS REPETIDAS: Antes de clasificar un pensamiento como una idea nueva, verifica si existe una nota previa pausada o en incubación sobre el mismo concepto. Si ya existe, referencia la nota histórica [[Nombre]] e informa al usuario.
-11. IDIOMA Y SÍNTESIS DIRECTA: Está estrictamente prohibido responder en inglés o imprimir razonamientos/pensamientos internos. Todas las respuestas deben ser en español, breves y con las herramientas ejecutadas directamente.${userProfileText}
+10. ENLAZADO PROACTIVO DE GRAFO: Al crear o actualizar notas sobre proyectos o conceptos, estás OBLIGADO a identificar relaciones entre dominios (ej. conectar un proyecto con su idea origen o bloqueo de tiempo) y ejecutar la herramienta connectNotes para tejer enlaces [[WikiLinks]] automáticamente en la Bóveda.
+11. PREVENCIÓN DE IDEAS REPETIDAS: Antes de clasificar un pensamiento como una idea nueva, verifica si existe una nota previa pausada o en incubación sobre el mismo concepto. Si ya existe, referencia la nota histórica [[Nombre]] e informa al usuario.
+12. IDIOMA Y SÍNTESIS DIRECTA: Está estrictamente prohibido responder en inglés o imprimir razonamientos/pensamientos internos. Todas las respuestas deben ser en español, extremadamente breves, directas, y con las herramientas ejecutadas directamente. No actúes como un chatbot web conversacional verboso, no ofrezcas sugerencias genéricas y no realices llamados a la acción (CTAs) como "¿Quieres que investigue esto?" o "¿Te gustaría que cree la nota?". Simplemente ejecuta la acción o responde al punto.${userProfileText}
   `.trim();
 
   // 7. Construir el prompt de usuario (combinando contexto, historial y mensaje actual)
