@@ -21,8 +21,11 @@ const watcher = chokidar.watch(`${notesPath}/**/*.md`, {
   persistent: true,
   ignoreInitial: false, // Procesa los archivos existentes al iniciar
   ignored: (filePath) => {
+    // Ignorar archivos y carpetas ocultas (ej: .stversions, .obsidian, .git, .trash)
+    const isHidden = /(^|[\/\\])\../.test(filePath);
     // Ignorar si es un archivo de dibujo de Excalidraw (.excalidraw.md)
-    return filePath.endsWith('.excalidraw.md') || filePath.toLowerCase().includes('.excalidraw');
+    const isExcalidraw = filePath.endsWith('.excalidraw.md') || filePath.toLowerCase().includes('.excalidraw');
+    return isHidden || isExcalidraw;
   },
   awaitWriteFinish: {
     stabilityThreshold: 500, // Espera 500ms tras el último cambio para evitar lecturas parciales

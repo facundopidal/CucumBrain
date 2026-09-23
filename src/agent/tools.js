@@ -9,8 +9,49 @@ const NOTES_PATH = targetPath
   ? path.resolve(targetPath) 
   : path.resolve('./vault');
 
+// Contexto de proyecto activo en memoria durante la ejecución del turno
+let currentActiveProject = null;
+
+export function setActiveProjectContext(project) {
+  currentActiveProject = project || null;
+}
+
+export function getActiveProjectContext() {
+  return currentActiveProject;
+}
+
 // Definición unificada de esquemas de herramientas usando tipos lowercase por defecto (OpenAI standard)
 export const tools = [
+  {
+    name: 'listProjects',
+    description: 'Lista los proyectos existentes en la bóveda de Obsidian junto con su carpeta y cantidad de notas activas.',
+    parameters: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'moveNote',
+    description: 'Mueve una nota existente a otra carpeta de la bóveda (ej: de "limbo" a "proyectos/TaPeer"), actualizando su ubicación física e índice.',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'El título o ID de la nota existente a mover.'
+        },
+        targetFolder: {
+          type: 'string',
+          description: 'La carpeta de destino dentro de la bóveda (ej: "proyectos/TaPeer" o "limbo").'
+        },
+        targetProject: {
+          type: 'string',
+          description: 'Nombre del proyecto de destino (alternativa para mover directamente a proyectos/<targetProject>).'
+        }
+      },
+      required: ['title']
+    }
+  },
   {
     name: 'createNote',
     description: 'Crea una nueva nota de Obsidian con metadatos de frontmatter YAML e indexa inmediatamente.',
@@ -24,6 +65,14 @@ export const tools = [
         content: {
           type: 'string',
           description: 'El contenido principal de la nota en formato Markdown.'
+        },
+        folder: {
+          type: 'string',
+          description: 'Carpeta de destino dentro de la bóveda (ej: "proyectos/TaPeer", "limbo", etc.). Por defecto va a "proyectos/<activeProject>" si hay proyecto activo, o a "limbo".'
+        },
+        project: {
+          type: 'string',
+          description: 'Nombre del proyecto al que pertenece la nota (ubicará la nota en "proyectos/<project>").'
         },
         type_id: {
           type: 'string',
@@ -72,6 +121,10 @@ export const tools = [
         destinationTitle: {
           type: 'string',
           description: 'El título o ID de la nota destino a la que se apunta.'
+        },
+        allowCrossProject: {
+          type: 'boolean',
+          description: 'Permite enlazar notas pertenecientes a proyectos distintos si es true. Por defecto es false para evitar contaminación de dominios.'
         }
       },
       required: ['originTitle', 'destinationTitle']
@@ -91,6 +144,14 @@ export const tools = [
     parameters: {
       type: 'object',
       properties: {
+        project: {
+          type: 'string',
+          description: 'Filtra por nombre de proyecto (ej: TaPeer, CucumBrain).'
+        },
+        folder: {
+          type: 'string',
+          description: 'Filtra por carpeta de la bóveda (ej: limbo, Libros, proyectos/TaPeer).'
+        },
         type_id: {
           type: 'string',
           description: 'Filtra por tipo de nota (ej: project, idea, finance, resource, etc.).'
@@ -186,25 +247,201 @@ export const tools = [
 
 // Implementación de las funciones locales que ejecuta el agente
 export const toolActions = {
-  createNote: async ({ title, content, type_id = 'idea', status = 'incubating', importance = 3 }) => {
+  listProjects: async () => {
+    try {
+      const projectNamesMap = new Map();
+
+      // 1. Explorar proyectos físicos en disco bajo proyectos/ (o Proyectos/)
+      const candidateDirs = ['proyectos', 'Proyectos', 'PROYECTOS'];
+      for (const dirName of candidateDirs) {
+        const fullDir = path.join(NOTES_PATH, dirName);
+        if (fs.existsSync(fullDir)) {
+          try {
+            const entries = fs.readdirSync(fullDir, { withFileTypes: true });
+            for (const entry of entries) {
+              if (entry.isDirectory() && !entry.name.startsWith('.')) {
+                const lower = entry.name.toLowerCase();
+                if (!projectNamesMap.has(lower)) {
+                  projectNamesMap.set(lower, entry.name);
+                }
+              }
+            }
+          } catch (err) {
+            console.warn(`[Tools] Error al leer directorio de proyectos ${fullDir}:`, err.message);
+          }
+        }
+      }
+
+      // 2. Explorar proyectos registrados en SQLite
+      const dbProjects = db.prepare("SELECT DISTINCT project FROM notes WHERE project IS NOT NULL AND status != 'stub'").all();
+      for (const row of dbProjects) {
+        if (row.project) {
+          const lower = row.project.toLowerCase();
+          if (!projectNamesMap.has(lower)) {
+            projectNamesMap.set(lower, row.project);
+          }
+        }
+      }
+
+      // 3. Contar notas activas por proyecto
+      const projects = [];
+      for (const [lowerName, displayName] of projectNamesMap.entries()) {
+        const countRow = db.prepare("SELECT COUNT(*) as count FROM notes WHERE LOWER(project) = LOWER(?) AND status != 'stub'").get(displayName);
+        projects.push({
+          name: displayName,
+          folder: `proyectos/${displayName}`,
+          noteCount: countRow ? countRow.count : 0
+        });
+      }
+
+      // Ordenar alfabéticamente
+      projects.sort((a, b) => a.name.localeCompare(b.name));
+
+      return {
+        success: true,
+        projects
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  },
+
+  moveNote: async ({ title, targetFolder, targetProject }) => {
+    try {
+      if (!title) {
+        return { success: false, error: 'El título de la nota es requerido.' };
+      }
+
+      let effectiveTargetFolder = targetFolder;
+      if (!effectiveTargetFolder && targetProject) {
+        effectiveTargetFolder = `proyectos/${targetProject}`;
+      }
+
+      if (!effectiveTargetFolder) {
+        return { success: false, error: 'Se debe especificar targetFolder o targetProject.' };
+      }
+
+      // 1. Localizar la nota origen en SQLite o por coincidencia de archivo
+      const note = db.prepare('SELECT id, title, file_path, folder, project FROM notes WHERE LOWER(title) = LOWER(?) OR LOWER(id) = LOWER(?)').get(title, title);
+      
+      let sourcePath = null;
+      if (note && note.file_path && fs.existsSync(path.resolve(note.file_path))) {
+        sourcePath = path.resolve(note.file_path);
+      } else {
+        // Búsqueda alternativa en NOTES_PATH
+        const directPath = path.join(NOTES_PATH, `${title}.md`);
+        if (fs.existsSync(directPath)) {
+          sourcePath = directPath;
+        } else {
+          // Búsqueda recursiva básica
+          const findFileRecursive = (dir) => {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              const full = path.join(dir, entry.name);
+              if (entry.isDirectory() && !entry.name.startsWith('.')) {
+                const found = findFileRecursive(full);
+                if (found) return found;
+              } else if (entry.isFile() && entry.name.toLowerCase() === `${title.toLowerCase()}.md`) {
+                return full;
+              }
+            }
+            return null;
+          };
+          sourcePath = findFileRecursive(NOTES_PATH);
+        }
+      }
+
+      if (!sourcePath || !fs.existsSync(sourcePath)) {
+        return { success: false, error: `La nota "${title}" no existe físicamente en el disco.` };
+      }
+
+      // 2. Validación de seguridad y confinamiento de rutas (Path Traversal Guard)
+      const sanitizedTargetFolder = effectiveTargetFolder === '.' ? '' : effectiveTargetFolder;
+      const resolvedTargetDir = path.resolve(NOTES_PATH, sanitizedTargetFolder);
+
+      if (!resolvedTargetDir.startsWith(NOTES_PATH)) {
+        return { success: false, error: 'Acceso denegado: la ruta de destino está fuera de la carpeta de notas autorizada.' };
+      }
+
+      // 3. Verificación de colisión en destino
+      const fileName = path.basename(sourcePath);
+      const destFilePath = path.join(resolvedTargetDir, fileName);
+
+      if (fs.existsSync(destFilePath) && path.resolve(destFilePath) !== path.resolve(sourcePath)) {
+        return { success: false, error: 'Ya existe un archivo con ese nombre en la carpeta de destino.' };
+      }
+
+      // 4. Crear carpeta de destino si no existe
+      if (!fs.existsSync(resolvedTargetDir)) {
+        fs.mkdirSync(resolvedTargetDir, { recursive: true });
+      }
+
+      // 5. Mover archivo físicamente
+      fs.renameSync(sourcePath, destFilePath);
+
+      // 6. Actualizar registro y re-indexar inmediatamente
+      const noteId = note ? note.id : slugify(title);
+      db.prepare('UPDATE notes SET file_path = ? WHERE id = ?').run(destFilePath, noteId);
+      indexNote(destFilePath);
+
+      // 7. Recuperar metadata actualizada
+      const updatedNote = db.prepare('SELECT folder, project FROM notes WHERE id = ?').get(noteId);
+
+      return {
+        success: true,
+        message: `Nota "${title}" movida exitosamente.`,
+        previousPath: sourcePath,
+        newPath: destFilePath,
+        folder: updatedNote?.folder,
+        project: updatedNote?.project
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  },
+
+  createNote: async ({ title, content, folder, project, type_id = 'idea', status = 'incubating', importance = 3 }) => {
     try {
       if (!title) {
         return { success: false, error: 'El título es requerido.' };
       }
 
-      // Asegurar que la carpeta vault exista
+      // Asegurar que la carpeta base vault exista
       if (!fs.existsSync(NOTES_PATH)) {
         fs.mkdirSync(NOTES_PATH, { recursive: true });
       }
 
-      const fileName = `${title}.md`;
-      const filePath = path.join(NOTES_PATH, fileName);
+      // Determinar carpeta de destino:
+      // 1. folder explícito
+      // 2. project explícito -> proyectos/<project>
+      // 3. activeProject de la conversación -> proyectos/<activeProject>
+      // 4. default -> limbo
+      let targetFolder;
+      if (folder !== undefined) {
+        targetFolder = folder;
+      } else if (project) {
+        targetFolder = `proyectos/${project}`;
+      } else if (currentActiveProject) {
+        targetFolder = `proyectos/${currentActiveProject}`;
+      } else {
+        targetFolder = 'limbo';
+      }
+
+      const sanitizedFolder = targetFolder === '.' ? '' : targetFolder;
+      const targetDir = path.resolve(NOTES_PATH, sanitizedFolder);
 
       // Seguridad: Validar que no se salga de NOTES_PATH
-      const resolvedPath = path.resolve(filePath);
-      if (!resolvedPath.startsWith(NOTES_PATH)) {
+      if (!targetDir.startsWith(NOTES_PATH)) {
         return { success: false, error: 'Acceso denegado fuera de la carpeta de notas.' };
       }
+
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+
+      const fileName = `${title}.md`;
+      const filePath = path.join(targetDir, fileName);
+      const resolvedPath = path.resolve(filePath);
 
       if (fs.existsSync(resolvedPath)) {
         return { success: false, error: `La nota "${title}" ya existe en el sistema.` };
@@ -232,10 +469,12 @@ export const toolActions = {
       // Indexar inmediatamente
       indexNote(resolvedPath);
 
+      const indexedNote = db.prepare('SELECT id, title, type_id, status, importance, folder, project FROM notes WHERE id = ?').get(id);
+
       return {
         success: true,
-        message: `Nota "${title}" creada exitosamente.`,
-        note: { id, title, type_id, status, importance }
+        message: `Nota "${title}" creada exitosamente en "${targetFolder}".`,
+        note: indexedNote || { id, title, type_id, status, importance, folder: targetFolder }
       };
     } catch (err) {
       return { success: false, error: err.message };
@@ -249,7 +488,7 @@ export const toolActions = {
       }
 
       // Buscar nota en base de datos
-      const note = db.prepare('SELECT file_path, title FROM notes WHERE title = ? OR id = ?').get(title, title);
+      const note = db.prepare('SELECT file_path, title FROM notes WHERE LOWER(title) = LOWER(?) OR LOWER(id) = LOWER(?)').get(title, title);
 
       let filePath;
       if (note && note.file_path) {
@@ -288,14 +527,25 @@ export const toolActions = {
     }
   },
 
-  connectNotes: async ({ originTitle, destinationTitle }) => {
+  connectNotes: async ({ originTitle, destinationTitle, allowCrossProject = false }) => {
     try {
       if (!originTitle || !destinationTitle) {
         return { success: false, error: 'Se requiere nota de origen y nota de destino.' };
       }
 
-      // Buscar nota de origen en la base de datos
-      const originNote = db.prepare('SELECT file_path, title FROM notes WHERE title = ? OR id = ?').get(originTitle, originTitle);
+      // Buscar nota de origen y destino en la base de datos
+      const originNote = db.prepare('SELECT file_path, title, project FROM notes WHERE LOWER(title) = LOWER(?) OR LOWER(id) = LOWER(?)').get(originTitle, originTitle);
+      const destinationNote = db.prepare('SELECT file_path, title, project FROM notes WHERE LOWER(title) = LOWER(?) OR LOWER(id) = LOWER(?)').get(destinationTitle, destinationTitle);
+
+      // Guardia de Aislamiento de Proyectos
+      if (originNote && destinationNote && originNote.project && destinationNote.project && originNote.project.toLowerCase() !== destinationNote.project.toLowerCase()) {
+        if (!allowCrossProject) {
+          return {
+            success: false,
+            error: `Aviso de aislamiento: "${originNote.title}" pertenece al proyecto "${originNote.project}" y "${destinationNote.title}" al proyecto "${destinationNote.project}". Para confirmar un enlace entre proyectos distintos, use allowCrossProject: true.`
+          };
+        }
+      }
 
       let originPath;
       if (originNote && originNote.file_path) {
@@ -345,17 +595,26 @@ export const toolActions = {
 
   listNotes: async () => {
     try {
-      const notes = db.prepare('SELECT id, title, type_id, status, importance FROM notes WHERE status != \'stub\'').all();
+      const notes = db.prepare('SELECT id, title, type_id, status, importance, folder, project FROM notes WHERE status != \'stub\'').all();
       return { success: true, notes };
     } catch (err) {
       return { success: false, error: err.message };
     }
   },
 
-  queryNotesByMetadata: async ({ type_id, status, importance }) => {
+  queryNotesByMetadata: async ({ project, folder, type_id, status, importance }) => {
     try {
-      let query = 'SELECT id, title, type_id, status, importance FROM notes WHERE status != \'stub\'';
+      let query = 'SELECT id, title, type_id, status, importance, folder, project FROM notes WHERE status != \'stub\'';
       const params = [];
+
+      if (project) {
+        query += ' AND LOWER(project) = LOWER(?)';
+        params.push(project);
+      }
+      if (folder) {
+        query += " AND (folder = ? OR folder LIKE ? || '/%')";
+        params.push(folder, folder);
+      }
       if (type_id) {
         query += ' AND type_id = ?';
         params.push(type_id);
@@ -368,6 +627,7 @@ export const toolActions = {
         query += ' AND importance >= ?';
         params.push(importance);
       }
+
       const notes = db.prepare(query).all(...params);
       return { success: true, notes };
     } catch (err) {
@@ -485,7 +745,7 @@ export const toolActions = {
         return { success: false, error: 'El título es requerido.' };
       }
 
-      const note = db.prepare('SELECT file_path, title, type_id, status, importance FROM notes WHERE LOWER(title) = LOWER(?) OR LOWER(id) = LOWER(?)').get(title, title);
+      const note = db.prepare('SELECT file_path, title, type_id, status, importance, folder, project FROM notes WHERE LOWER(title) = LOWER(?) OR LOWER(id) = LOWER(?)').get(title, title);
       if (!note || !note.file_path) {
         return { success: false, error: `La nota "${title}" no se encuentra en el índice.` };
       }
@@ -503,6 +763,8 @@ export const toolActions = {
           type_id: note.type_id,
           status: note.status,
           importance: note.importance,
+          folder: note.folder,
+          project: note.project,
           content: fileContent
         }
       };

@@ -38,6 +38,21 @@ export function markdownToTelegramHtml(markdown) {
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const allowedUser = process.env.TELEGRAM_ALLOWED_USER_ID;
 
+/**
+ * Crea un manejador para enviar notificaciones de diagnóstico en tiempo real al chat de Telegram
+ * cuando ocurren reintentos con backoff o cambios de proveedor LLM (fallback).
+ */
+function createDiagnosticHandler(ctx) {
+  return async (diagMessage) => {
+    try {
+      console.log(`[Diagnostic] ${diagMessage}`);
+      await ctx.reply(diagMessage);
+    } catch (err) {
+      console.warn('[Diagnostic] No se pudo enviar notificación de diagnóstico a Telegram:', err.message);
+    }
+  };
+}
+
 if (!botToken) {
   console.warn('[Bot] TELEGRAM_BOT_TOKEN no configurada. El bot de Telegram no se iniciará.');
 } else {
@@ -83,58 +98,57 @@ if (!botToken) {
     }
   });
 
-
-async function replyLongMessage(ctx, text, options = {}) {
-  if (!text || !text.trim()) {
-    text = '✅ Operación completada.';
-  }
-
-  const sendChunk = async (plainChunk, htmlChunk) => {
-    try {
-      await ctx.reply(htmlChunk, { parse_mode: 'HTML', ...options });
-    } catch (err) {
-      console.warn('[Bot] Falló el formato HTML en Telegram, enviando como texto plano:', err.message);
-      await ctx.reply(plainChunk, options);
-    }
-  };
-
-  const MAX_LENGTH = 3800;
-  const htmlFormatted = markdownToTelegramHtml(text);
-
-  if (text.length <= MAX_LENGTH && htmlFormatted.length <= MAX_LENGTH) {
-    return sendChunk(text, htmlFormatted);
-  }
-
-  const chunksText = [];
-  const chunksHtml = [];
-  let currentText = text;
-  let currentHtml = htmlFormatted;
-
-  while (currentText.length > 0) {
-    if (currentText.length <= MAX_LENGTH) {
-      chunksText.push(currentText);
-      chunksHtml.push(currentHtml);
-      break;
+  async function replyLongMessage(ctx, text, options = {}) {
+    if (!text || !text.trim()) {
+      text = '✅ Operación completada.';
     }
 
-    let cutIndex = currentText.lastIndexOf('\n', MAX_LENGTH);
-    if (cutIndex <= 0) {
-      cutIndex = MAX_LENGTH;
+    const sendChunk = async (plainChunk, htmlChunk) => {
+      try {
+        await ctx.reply(htmlChunk, { parse_mode: 'HTML', ...options });
+      } catch (err) {
+        console.warn('[Bot] Falló el formato HTML en Telegram, enviando como texto plano:', err.message);
+        await ctx.reply(plainChunk, options);
+      }
+    };
+
+    const MAX_LENGTH = 3800;
+    const htmlFormatted = markdownToTelegramHtml(text);
+
+    if (text.length <= MAX_LENGTH && htmlFormatted.length <= MAX_LENGTH) {
+      return sendChunk(text, htmlFormatted);
     }
 
-    chunksText.push(currentText.substring(0, cutIndex));
-    chunksHtml.push(currentHtml.substring(0, cutIndex));
+    const chunksText = [];
+    const chunksHtml = [];
+    let currentText = text;
+    let currentHtml = htmlFormatted;
 
-    currentText = currentText.substring(cutIndex).trimStart();
-    currentHtml = currentHtml.substring(cutIndex).trimStart();
+    while (currentText.length > 0) {
+      if (currentText.length <= MAX_LENGTH) {
+        chunksText.push(currentText);
+        chunksHtml.push(currentHtml);
+        break;
+      }
+
+      let cutIndex = currentText.lastIndexOf('\n', MAX_LENGTH);
+      if (cutIndex <= 0) {
+        cutIndex = MAX_LENGTH;
+      }
+
+      chunksText.push(currentText.substring(0, cutIndex));
+      chunksHtml.push(currentHtml.substring(0, cutIndex));
+
+      currentText = currentText.substring(cutIndex).trimStart();
+      currentHtml = currentHtml.substring(cutIndex).trimStart();
+    }
+
+    for (let i = 0; i < chunksText.length; i++) {
+      await sendChunk(chunksText[i], chunksHtml[i]);
+    }
   }
 
-  for (let i = 0; i < chunksText.length; i++) {
-    await sendChunk(chunksText[i], chunksHtml[i]);
-  }
-}
-
-  // Manejador de mensajes de texto (Inferencia RAG)
+  // Manejador de mensajes de texto (Inferencia RAG con diagnóstico)
   bot.on('text', async (ctx) => {
     const userMessage = ctx.message.text;
     console.log(`[Bot] Consulta recibida: "${userMessage}"`);
@@ -143,8 +157,9 @@ async function replyLongMessage(ctx, text, options = {}) {
       // Indicar que el bot está escribiendo
       await ctx.sendChatAction('typing');
 
-      // Consultar al agente de IA
-      const answer = await askAgent(userMessage);
+      // Consultar al agente de IA con handler de diagnóstico
+      const onDiagnostic = createDiagnosticHandler(ctx);
+      const answer = await askAgent(userMessage, { onDiagnostic });
 
       // Responder al usuario (usando división para mensajes largos)
       await replyLongMessage(ctx, answer);
@@ -154,7 +169,7 @@ async function replyLongMessage(ctx, text, options = {}) {
     }
   });
 
-  // Manejador de mensajes de voz (Audio a texto y luego a askAgent)
+  // Manejador de mensajes de voz (Audio a texto y luego a askAgent con diagnóstico)
   bot.on('voice', async (ctx) => {
     const fileId = ctx.message.voice.file_id;
     console.log(`[Bot] Audio de voz recibido (ID de archivo: ${fileId})`);
@@ -188,8 +203,9 @@ async function replyLongMessage(ctx, text, options = {}) {
       // Indicar que el bot está respondiendo
       await ctx.sendChatAction('typing');
 
-      // 4. Consultar al agente con el texto transcrito
-      const answer = await askAgent(transcription);
+      // 4. Consultar al agente con el texto transcrito y diagnóstico
+      const onDiagnostic = createDiagnosticHandler(ctx);
+      const answer = await askAgent(transcription, { onDiagnostic });
 
       // 5. Responder al usuario (usando división para mensajes largos)
       await replyLongMessage(ctx, answer);

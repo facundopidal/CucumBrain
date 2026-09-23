@@ -1,5 +1,44 @@
 # Bitácora de Cambios - CucumBrain
 
+## [2026-09-23] Aislamiento de Proyectos por Carpetas y Motor de LLM Resiliente Multi-Tier (SDD)
+- **Qué se hizo:**
+  - Migración idempotente de SQLite con backup automático (`.bak`) previo al arranque, agregando columnas `folder` y `project` e índices en `notes`.
+  - Extracción dinámica de dominios y auto-hidratación de arranque en `src/database/indexer.js` (`extractPathMetadata`, `ensureVaultIndexed`).
+  - Nuevas herramientas de bóveda en `src/agent/tools.js`: `listProjects`, `moveNote` con protección de path traversal, destino inteligente en `createNote` (`proyectos/<activeProject>` o `limbo/`), candado en `connectNotes` y filtros en `queryNotesByMetadata`.
+  - Aislamiento estricto en RAG (`searchNotes`) con detección contextual de proyecto activo y supresión de distractores inter-proyecto. Saneamiento del prompt eliminando la taxonomía hardcodeada de Fase 6 y la regla de enlazado forzado.
+  - Motor de ejecución de LLM resiliente en `src/agent/agent.js` con reintentos exponenciales (429/500/503), cascada de fallback (Gemini -> Groq Qwen/Llama -> OpenRouter Free) y conversión de payloads a mitad de turno.
+  - Avisos de diagnóstico técnico en tiempo real en `src/bot/bot.js` para Telegram (`[⚠️ ...]`, `[🔄 ...]`).
+  - Cobertura con 4 suites de pruebas automatizadas en `tests/` con 100% de éxito.
+- **Decisiones clave y autoría:**
+  - *Aislamiento Estricto por Subcarpeta en `proyectos/` (Consenso):* Toda subcarpeta directa dentro de `proyectos/` define un dominio de proyecto aislado. Las notas externas (`limbo/`, `Libros/`, `Frases - Expresiones/`, raíz) son transversales (`project = null`), permitiendo que notas conceptuales como `Home Lab` sean referenciadas sin romper el aislamiento.
+  - *Herramienta de Organización Evolutiva `moveNote` (Usuario):* Se dotó al agente de la capacidad de mover físicamente archivos `.md` para permitir que notas e ideas maduren desde `limbo/` hacia proyectos específicos.
+  - *Migración No Destructiva con Backup Automático `.bak` en Caliente (Usuario):* Se implementó `ALTER TABLE` sin reinicio destructivo de base de datos para preservar el historial y la memoria a largo plazo en producción.
+  - *Cascada de Fallback Multi-Tier con Diagnóstico Técnico (Usuario):* Se configuró conmutación transparente con avisos concisos en Telegram para el usuario desarrollador.
+- **Por qué (Justificación humana):** Erradica de raíz la contaminación cruzada entre proyectos en CucumBrain, impide la saturación de notas en la raíz de la bóveda y garantiza tolerancia a fallos ante errores transitorios de los proveedores de IA.
+- **Archivos afectados:**
+  - [src/database/db.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/database/db.js)
+  - [src/database/indexer.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/database/indexer.js)
+  - [src/database/init.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/database/init.js)
+  - [src/agent/tools.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/agent/tools.js)
+  - [src/agent/agent.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/agent/agent.js)
+  - [src/index.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/index.js)
+  - [src/bot/bot.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/bot/bot.js)
+  - [tests/phase1-migration-indexing.test.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/tests/phase1-migration-indexing.test.js)
+  - [tests/phase2-vault-tools.test.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/tests/phase2-vault-tools.test.js)
+  - [tests/phase3-rag-isolation.test.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/tests/phase3-rag-isolation.test.js)
+  - [tests/e2e-project-isolation-resilience.test.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/tests/e2e-project-isolation-resilience.test.js)
+  - [docs/bitacora.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/docs/bitacora.md)
+
+## [2026-07-30] Exclusión de Directorios Ocultos (.stversions, .obsidian) en Watcher e Indexador (Fast-Track)
+- **Qué se hizo:** Se actualizó la función `ignored` en `src/watcher/watcher.js` y la búsqueda en `src/utils/canvas-converter.js` para filtrar cualquier archivo o directorio oculto (que comience con `.`, como `.stversions`, `.obsidian`, `.git`).
+- **Decisiones clave y autoría:**
+  - *Filtro de Elementos Ocultos en Chokidar (Consenso):* Se implementó `/(^|[\/\\])\../` en la función `ignored` de `chokidar` para evitar que las copias de respaldo de Syncthing (`.stversions`) o metadatos de Obsidian sean registradas en la base de datos como rutas válidas de notas.
+- **Por qué (Justificación humana):** Evita que las notas archivadas temporalmente por Syncthing en `.stversions` sobreescriban la ruta primaria (`file_path`) de las notas reales en la base de datos de SQLite, garantizando que el bot siempre edite el archivo activo en las carpetas públicas del Vault.
+- **Archivos afectados:**
+  - [src/watcher/watcher.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/watcher/watcher.js)
+  - [src/utils/canvas-converter.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/utils/canvas-converter.js)
+  - [docs/bitacora.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/docs/bitacora.md)
+
 ## [2026-07-27] Despliegue en Producción y Gestión de Procesos PM2 (Fase 7 - Cierre de Roadmap)
 - **Qué se hizo:** Se preparó la arquitectura completa de despliegue headless para la Samsung Netbook (Windows x86 / 32-bits). Se creó el archivo de configuración `ecosystem.config.cjs` para PM2 con límites de memoria ajustados a 300 MB, reinicio automático y logging estructurado. Se agregaron los comandos del ciclo de vida `npm run pm2:*` en `package.json` y se redactó una guía detallada paso a paso en `docs/DEPLOYMENT.md` para configurar el auto-arranque sin consola mediante `pm2-windows-startup`.
 - **Decisiones clave y autoría:**

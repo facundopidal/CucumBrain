@@ -1,6 +1,8 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
+import { runMigrations } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Guardamos la DB en la raíz del proyecto
@@ -40,9 +42,18 @@ db.prepare(`
     content TEXT,                  -- Cuerpo en Markdown para búsquedas y contexto RAG
     created_at TEXT,
     updated_at TEXT,
+    folder TEXT,                   -- Carpeta relativa dentro de la bóveda (ej: proyectos/TaPeer, limbo)
+    project TEXT,                  -- Nombre del proyecto extraído de la jerarquía de carpetas
     FOREIGN KEY(type_id) REFERENCES types(id) ON DELETE SET NULL
   )
 `).run();
+
+// Índices para optimizar filtros de proyectos y carpetas
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_notes_project ON notes(project)`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder)`).run();
+
+// Ejecutar migraciones para asegurar consistencia en esquemas preexistentes
+runMigrations(db);
 
 // 3. Tabla de Relaciones entre Notas (Para el Grafo de Obsidian)
 db.prepare(`

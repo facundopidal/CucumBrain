@@ -3,6 +3,11 @@ import path from 'path';
 import matter from 'gray-matter';
 import db from './db.js';
 
+const targetPath = process.env.NOTES_PATH || process.env.OBSIDIAN_VAULT_PATH;
+const NOTES_PATH = targetPath 
+  ? path.resolve(targetPath) 
+  : path.resolve('./vault');
+
 // Función para limpiar/normalizar un título y convertirlo en slug
 export function slugify(text) {
   return text
@@ -32,6 +37,46 @@ function extractWikiLinks(content) {
     }
   }
   return links;
+}
+
+/**
+ * Extrae la jerarquía de carpetas y el dominio del proyecto a partir de la ruta del archivo.
+ * - Archivos bajo proyectos/<NombreProyecto>/... heredan project = <NombreProyecto>
+ * - Archivos fuera de proyectos/ (limbo, Libros, raíz, etc.) tienen project = null
+ * @param {string} filePath - Ruta absoluta o relativa del archivo
+ * @param {string} notesBasePath - Ruta base de la bóveda
+ * @returns {{ project: string|null, folder: string, relativePath: string }}
+ */
+export function extractPathMetadata(filePath, notesBasePath = NOTES_PATH) {
+  const absPath = path.resolve(filePath);
+  const relPath = path.relative(notesBasePath, absPath);
+  const normalized = relPath.replace(/\\/g, '/');
+  const segments = normalized.split('/');
+  const dirSegments = segments.slice(0, -1);
+
+  let project = null;
+  let folder = '.';
+
+  if (dirSegments.length > 0) {
+    folder = dirSegments.join('/');
+    if (dirSegments[0].toLowerCase() === 'proyectos') {
+      if (dirSegments.length >= 2) {
+        // La subcarpeta directa dentro de proyectos define el dominio
+        project = dirSegments[1];
+      } else {
+        // Archivos en la raíz de proyectos/
+        project = null;
+      }
+    } else {
+      // Carpetas transversales (limbo, Libros, Frases, Home Lab, etc.)
+      project = null;
+    }
+  } else {
+    folder = '.';
+    project = null; // Raíz de la bóveda
+  }
+
+  return { project, folder, relativePath: normalized };
 }
 
 /**
@@ -69,6 +114,16 @@ export function indexNote(filePath) {
   const status = frontMatter.estado ? String(frontMatter.estado).trim() : 'incubating';
   const importance = Number(frontMatter.importancia) || 3;
 
+  // Extraer metadata de carpeta y proyecto según la estructura de directorios
+  const pathMeta = extractPathMetadata(absolutePath);
+  let folder = pathMeta.folder;
+  let project = pathMeta.project;
+
+  // Permitir override explícito mediante frontmatter "proyecto" si existe
+  if (frontMatter && frontMatter.proyecto) {
+    project = String(frontMatter.proyecto).trim();
+  }
+
   // Formatear fechas (pueden ser objetos Date generados por js-yaml de gray-matter)
   let createdAt;
   if (frontMatter.fecha_creacion instanceof Date) {
@@ -87,7 +142,6 @@ export function indexNote(filePath) {
   } else {
     updatedAt = new Date().toISOString().split('T')[0];
   }
-
 
   // Iniciar una transacción para consistencia
   const transaction = db.transaction(() => {
@@ -119,12 +173,12 @@ export function indexNote(filePath) {
         }
       }
 
-      // Actualizar nota existente
+      // Actualizar nota existente con folder y project
       db.prepare(`
         UPDATE notes
-        SET file_path = ?, title = ?, type_id = ?, status = ?, importance = ?, content = ?, updated_at = ?
+        SET file_path = ?, title = ?, type_id = ?, status = ?, importance = ?, content = ?, updated_at = ?, folder = ?, project = ?
         WHERE id = ?
-      `).run(absolutePath, title, typeId, status, importance, markdownBody, updatedAt, id);
+      `).run(absolutePath, title, typeId, status, importance, markdownBody, updatedAt, folder, project, id);
     } else {
       // Si la nota ya estaba como 'stub' (creada como enlace huérfano), la actualizamos
       const isStub = db.prepare(`
@@ -134,15 +188,15 @@ export function indexNote(filePath) {
       if (isStub && isStub.status === 'stub') {
         db.prepare(`
           UPDATE notes
-          SET file_path = ?, title = ?, type_id = ?, status = ?, importance = ?, content = ?, created_at = ?, updated_at = ?
+          SET file_path = ?, title = ?, type_id = ?, status = ?, importance = ?, content = ?, created_at = ?, updated_at = ?, folder = ?, project = ?
           WHERE id = ?
-        `).run(absolutePath, title, typeId, status, importance, markdownBody, createdAt, updatedAt, id);
+        `).run(absolutePath, title, typeId, status, importance, markdownBody, createdAt, updatedAt, folder, project, id);
       } else {
         // Insertar nota nueva
         db.prepare(`
-          INSERT INTO notes (id, file_path, title, type_id, status, importance, content, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, absolutePath, title, typeId, status, importance, markdownBody, createdAt, updatedAt);
+          INSERT INTO notes (id, file_path, title, type_id, status, importance, content, created_at, updated_at, folder, project)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, absolutePath, title, typeId, status, importance, markdownBody, createdAt, updatedAt, folder, project);
       }
     }
 
@@ -190,7 +244,7 @@ export function indexNote(filePath) {
   });
 
   transaction();
-  console.log(`[Indexer] Nota indexada: "${title}" (ID: ${id})`);
+  console.log(`[Indexer] Nota indexada: "${title}" (ID: ${id}, Carpeta: ${folder}, Proyecto: ${project || 'transversal'})`);
 }
 
 /**
@@ -209,5 +263,65 @@ export function deleteNote(filePath) {
     console.log(`[Indexer] Nota eliminada de la base de datos: "${note.title}" (ID: ${note.id})`);
   } else {
     console.warn(`[Indexer] Intento de eliminar una nota no registrada: ${absolutePath}`);
+  }
+}
+
+/**
+ * Reindexa recursivamente todos los archivos .md en la bóveda de Obsidian.
+ * @param {string} vaultPath - Ruta de la bóveda
+ */
+export function reindexAllNotes(vaultPath = NOTES_PATH) {
+  const root = path.resolve(vaultPath);
+  if (!fs.existsSync(root)) {
+    return;
+  }
+
+  function walk(dir) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+      console.warn(`[Indexer] No se pudo leer el directorio: ${dir}`, err.message);
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        // Ignorar carpetas ocultas (.obsidian, .git, .stversions, .trash, etc.)
+        if (!entry.name.startsWith('.')) {
+          walk(fullPath);
+        }
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        // Ignorar dibujos de Excalidraw
+        if (!entry.name.endsWith('.excalidraw.md') && !entry.name.toLowerCase().includes('.excalidraw')) {
+          try {
+            indexNote(fullPath);
+          } catch (err) {
+            console.error(`[Indexer] Error al re-indexar archivo ${fullPath}:`, err.message);
+          }
+        }
+      }
+    }
+  }
+
+  walk(root);
+}
+
+/**
+ * Verifica al arrancar si existen notas sin folder o project poblados,
+ * y en tal caso dispara una re-indexación completa para auto-hidratar la base.
+ * @param {string} vaultPath - Ruta de la bóveda
+ */
+export async function ensureVaultIndexed(vaultPath = NOTES_PATH) {
+  try {
+    const check = db.prepare("SELECT COUNT(*) as count FROM notes WHERE status != 'stub' AND folder IS NULL").get();
+    if (check && check.count > 0) {
+      console.log(`[Auto-Hydration] Detectadas ${check.count} notas sin metadata de proyecto/carpeta. Iniciando re-indexación...`);
+      reindexAllNotes(vaultPath);
+      console.log('[Auto-Hydration] Re-indexación de notas completada.');
+    }
+  } catch (err) {
+    console.error('[Auto-Hydration] Error al verificar estado de indexación de la bóveda:', err.message);
   }
 }
