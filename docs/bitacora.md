@@ -1,5 +1,35 @@
 # Bitácora de Cambios - CucumBrain
 
+## [2026-10-15] Arquitectura de Resiliencia Guardian/Worker y Observabilidad Privada (SDD)
+- **Qué se hizo:**
+  - Separación del runtime del bot en un Worker hilo dedicado (`src/runtime/bot-worker.js`) supervisado por un Guardián (`src/runtime/guardian.js`) con protocolo IPC versionado.
+  - Implementación de presupuestos de ejecución, backoff y cancelación atómica sin latencia vía `SharedArrayBuffer` y `Atomics` (`src/runtime/turn-context.js`, `src/runtime/lifecycle.js`).
+  - Subsistema de observabilidad privada con visor HTTP en loopback, sanitización estricta sin fuga de PII y autenticación de identidades Tailscale (`src/observability/`).
+  - Avisos en tiempo real al usuario de Telegram cuando el bot se encuentra saturado atendiendo otra petición.
+  - Configuración de PM2 (`ecosystem.config.cjs`) con `kill_timeout: 7000` y scripts de prueba unificados en `package.json`.
+  - Cobertura de 17 pruebas automatizadas (`tests/lifecycle.test.js`, `tests/observability.test.js`) aprobadas al 100%.
+- **Decisiones clave y autoría:**
+  - *Aislamiento en Worker Threads con Reinicio Acotado (Consenso):* Evita que bloqueos síncronos de bibliotecas nativas o caídas fatales de polling cuelguen silenciosamente el bot, garantizando autorecuperación supervisada por PM2.
+  - *Notificación Activa de Admisión Denegada (Consenso):* Ante concurrencia o saturación, el bot responde proactivamente en lugar de descartar mensajes silenciosamente.
+  - *Observabilidad Zero-PII en Loopback (Consenso):* Los logs operativos omiten contenido de notas, prompts o mensajes personales, exponiéndose únicamente a través de la red privada Tailscale.
+- **Por qué (Justificación humana):** Soluciona de raíz el problema reportado de cuelgues silenciosos del bot, permitiendo una operación desatendida 24/7 con trazabilidad y diagnóstico en tiempo real.
+- **Archivos afectados:**
+  - [src/index.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/index.js)
+  - [src/bot/bot.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/bot/bot.js)
+  - [src/runtime/guardian.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/runtime/guardian.js)
+  - [src/runtime/bot-worker.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/runtime/bot-worker.js)
+  - [src/runtime/turn-context.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/runtime/turn-context.js)
+  - [src/runtime/lifecycle.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/runtime/lifecycle.js)
+  - [src/observability/cli.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/observability/cli.js)
+  - [src/observability/events.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/observability/events.js)
+  - [src/observability/health.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/observability/health.js)
+  - [src/observability/viewer.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/observability/viewer.js)
+  - [ecosystem.config.cjs](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/ecosystem.config.cjs)
+  - [package.json](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/package.json)
+  - [tests/fixtures/sqlite-worker.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/tests/fixtures/sqlite-worker.js)
+  - [tests/lifecycle.test.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/tests/lifecycle.test.js)
+  - [tests/observability.test.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/tests/observability.test.js)
+
 ## [2026-09-23] Aislamiento de Proyectos por Carpetas y Motor de LLM Resiliente Multi-Tier (SDD)
 - **Qué se hizo:**
   - Migración idempotente de SQLite con backup automático (`.bak`) previo al arranque, agregando columnas `folder` y `project` e índices en `notes`.

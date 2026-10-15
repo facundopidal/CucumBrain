@@ -35,9 +35,6 @@ export function markdownToTelegramHtml(markdown) {
   return html;
 }
 
-const botToken = process.env.TELEGRAM_BOT_TOKEN;
-const allowedUser = process.env.TELEGRAM_ALLOWED_USER_ID;
-
 /**
  * Crea un manejador para enviar notificaciones de diagnóstico en tiempo real al chat de Telegram
  * cuando ocurren reintentos con backoff o cambios de proveedor LLM (fallback).
@@ -45,58 +42,73 @@ const allowedUser = process.env.TELEGRAM_ALLOWED_USER_ID;
 function createDiagnosticHandler(ctx) {
   return async (diagMessage) => {
     try {
-      console.log(`[Diagnostic] ${diagMessage}`);
       await ctx.reply(diagMessage);
-    } catch (err) {
-      console.warn('[Diagnostic] No se pudo enviar notificación de diagnóstico a Telegram:', err.message);
+    } catch {
+      console.warn('[Diagnostic] No se pudo enviar una notificación de diagnóstico.');
     }
   };
 }
 
-if (!botToken) {
-  console.warn('[Bot] TELEGRAM_BOT_TOKEN no configurada. El bot de Telegram no se iniciará.');
-} else {
+export function createBotRuntime({ withRequestLifecycle, onUpdate = () => {}, onError = () => {} } = {}) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const allowedUser = process.env.TELEGRAM_ALLOWED_USER_ID;
+  if (!botToken) {
+    console.warn('[Bot] TELEGRAM_BOT_TOKEN no configurada. El bot de Telegram no se iniciará.');
+    return { bot: null, stop() {} };
+  }
+
   const bot = new Telegraf(botToken);
+  const runLifecycle = (kind, operation, ctx) => typeof withRequestLifecycle === 'function'
+    ? withRequestLifecycle(kind, operation, ctx)
+    : operation(null);
+
+  bot.catch((error, ctx) => {
+    if (error && typeof error === 'object') error.updateHandlerFailure = true;
+    console.warn('[Bot] Falló el procesamiento de una actualización.');
+    try { onError(error, ctx); } catch {}
+  });
 
   // Middleware de seguridad para filtrar ID del usuario
-  bot.use((ctx, next) => {
+  bot.use(async (ctx, next) => {
     const userId = ctx.from?.id;
     if (!allowedUser) {
       console.warn(`[Bot] TELEGRAM_ALLOWED_USER_ID no configurado. Mensaje ignorado por seguridad.`);
       return;
     }
     if (String(userId) !== String(allowedUser)) {
-      console.warn(`[Bot] Acceso no autorizado denegado para el ID: ${userId} (${ctx.from?.username || 'sin_usuario'})`);
+      console.warn('[Bot] Acceso no autorizado denegado.');
       // Ignoramos el mensaje para no dar pistas de que hay un bot activo
       return;
     }
-    return next();
+    const result = await next();
+    onUpdate();
+    return result;
   });
 
   // Comando de inicio
-  bot.start((ctx) => {
-    ctx.reply('🧠 ¡Hola! Soy Cerebro, tu asistente personal conectado a tus notas de Obsidian.\n\nEscríbeme cualquier consulta sobre tus pensamientos o proyectos, o usa el comando /status para ver cómo está tu base de conocimientos.');
-  });
+  bot.start((ctx) => runLifecycle('command', async () => {
+    return ctx.reply('🧠 ¡Hola! Soy Cerebro, tu asistente personal conectado a tus notas de Obsidian.\n\nEscríbeme cualquier consulta sobre tus pensamientos o proyectos, o usa el comando /status para ver cómo está tu base de conocimientos.');
+  }, ctx));
 
   // Comando de estado
-  bot.command('status', (ctx) => {
+  bot.command('status', (ctx) => runLifecycle('command', async () => {
     try {
       const notesCount = db.prepare("SELECT COUNT(*) as count FROM notes WHERE status != 'stub'").get().count;
       const stubsCount = db.prepare("SELECT COUNT(*) as count FROM notes WHERE status = 'stub'").get().count;
       const typesCount = db.prepare("SELECT COUNT(*) as count FROM types").get().count;
       
-      ctx.reply(
+      return ctx.reply(
         `📊 *Estado de CucumBrain:*\n\n` +
         `📝 Notas indexadas: *${notesCount}*\n` +
         `🔗 Enlaces huérfanos (stubs): *${stubsCount}*\n` +
         `📁 Categorías activas: *${typesCount}*`, 
         { parse_mode: 'Markdown' }
       );
-    } catch (err) {
-      console.error('[Bot] Error en comando /status:', err.message);
-      ctx.reply('❌ Error al recuperar el estado de la base de datos.');
+    } catch {
+      console.error('[Bot] Error en comando /status.');
+      return ctx.reply('❌ Error al recuperar el estado de la base de datos.');
     }
-  });
+  }, ctx));
 
   async function replyLongMessage(ctx, text, options = {}) {
     if (!text || !text.trim()) {
@@ -106,8 +118,8 @@ if (!botToken) {
     const sendChunk = async (plainChunk, htmlChunk) => {
       try {
         await ctx.reply(htmlChunk, { parse_mode: 'HTML', ...options });
-      } catch (err) {
-        console.warn('[Bot] Falló el formato HTML en Telegram, enviando como texto plano:', err.message);
+      } catch {
+        console.warn('[Bot] Falló el formato HTML en Telegram; se intentará texto plano.');
         await ctx.reply(plainChunk, options);
       }
     };
@@ -149,9 +161,8 @@ if (!botToken) {
   }
 
   // Manejador de mensajes de texto (Inferencia RAG con diagnóstico)
-  bot.on('text', async (ctx) => {
+  bot.on('text', async (ctx) => runLifecycle('text', async () => {
     const userMessage = ctx.message.text;
-    console.log(`[Bot] Consulta recibida: "${userMessage}"`);
 
     try {
       // Indicar que el bot está escribiendo
@@ -164,15 +175,15 @@ if (!botToken) {
       // Responder al usuario (usando división para mensajes largos)
       await replyLongMessage(ctx, answer);
     } catch (err) {
-      console.error('[Bot] Error al procesar mensaje:', err.message);
-      await ctx.reply(`❌ Hubo un error al procesar tu consulta: ${err.message}`);
+      console.error('[Bot] Error al procesar mensaje.');
+      await ctx.reply('❌ Hubo un error al procesar tu consulta. Inténtalo de nuevo más tarde.');
+      throw err;
     }
-  });
+  }, ctx));
 
   // Manejador de mensajes de voz (Audio a texto y luego a askAgent con diagnóstico)
-  bot.on('voice', async (ctx) => {
+  bot.on('voice', async (ctx) => runLifecycle('audio', async () => {
     const fileId = ctx.message.voice.file_id;
-    console.log(`[Bot] Audio de voz recibido (ID de archivo: ${fileId})`);
 
     let tempFilePath = null;
     try {
@@ -197,7 +208,6 @@ if (!botToken) {
         return;
       }
 
-      console.log(`[Bot] Transcripción del audio: "${transcription}"`);
       await ctx.reply(`📝 *Transcribí:* "${transcription}"`, { parse_mode: 'Markdown' });
 
       // Indicar que el bot está respondiendo
@@ -210,26 +220,16 @@ if (!botToken) {
       // 5. Responder al usuario (usando división para mensajes largos)
       await replyLongMessage(ctx, answer);
     } catch (err) {
-      console.error('[Bot] Error al procesar nota de voz:', err.message);
-      await ctx.reply(`❌ Error al procesar el mensaje de voz: ${err.message}`);
+      console.error('[Bot] Error al procesar nota de voz.');
+      await ctx.reply('❌ Error al procesar el mensaje de voz. Inténtalo de nuevo más tarde.');
+      throw err;
     } finally {
       // 6. Limpiar el archivo de audio temporal
       if (tempFilePath) {
         cleanTempFile(tempFilePath);
       }
     }
-  });
+  }, ctx));
 
-  // Iniciar el bot en modo polling largo
-  bot.launch()
-    .then(() => {
-      console.log('[Bot] Bot de Telegram iniciado con éxito.');
-    })
-    .catch((err) => {
-      console.error('[Bot] Error al lanzar el bot:', err.message);
-    });
-
-  // Apagado graceful
-  process.once('SIGINT', () => bot.stop('SIGINT'));
-  process.once('SIGTERM', () => bot.stop('SIGTERM'));
+  return { bot, stop: (reason = 'guardian-shutdown') => bot.stop(reason) };
 }
