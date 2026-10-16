@@ -9,8 +9,22 @@ async function startFromEntrypoint() {
   startGuardian();
 }
 
-const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null;
-if (invokedPath === import.meta.url) {
+function isDirectExecution() {
+  if (process.env.pm_exec_path) {
+    try {
+      if (pathToFileURL(resolve(process.env.pm_exec_path)).href === import.meta.url) {
+        return true;
+      }
+    } catch {}
+  }
+  if (process.env.pm_id !== undefined) {
+    return true;
+  }
+  const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null;
+  return invokedPath === import.meta.url;
+}
+
+if (isDirectExecution()) {
   void startFromEntrypoint().catch(() => {
     process.exitCode = 1;
     setTimeout(() => process.exit(1), 5_000).unref?.();

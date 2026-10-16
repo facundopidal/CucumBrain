@@ -1,5 +1,19 @@
 # Bitácora de Cambios - CucumBrain
 
+## [2026-10-15] Corrección de Detección de Entrypoint en PM2 y Soporte Dinámico de LLM_PROVIDER (Fast-Track)
+- **Qué se hizo:**
+  - Se modificó la detección de punto de entrada en [src/index.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/index.js) (`isDirectExecution`) para contemplar `process.env.pm_id` y `process.env.pm_exec_path`. Esto resuelve el problema por el cual PM2 (al usar internamente `ProcessContainerFork.js` en modo fork) hacía que `process.argv[1]` no coincidiera con `import.meta.url`, provocando que el supervisor no arrancara.
+  - Se adaptó [src/agent/agent.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/agent/agent.js) (`callLLM`) para ordenar dinámicamente la cascada de proveedores según `process.env.LLM_PROVIDER`. Si se selecciona `groq`, se ejecuta primero Groq (usando `GROQ_API_KEY` o `LLM_API_KEY` y el modelo definido en `LLM_MODEL`) sin intentar primero una llamada errónea al SDK de Gemini con claves incompatibles.
+  - Validación completa con 17/17 tests pasando en verde.
+- **Decisiones clave y autoría:**
+  - *Detección de Wrapper PM2 sin romper Imports de Tests (Agente):* Permite que PM2 ejecute el proceso de forma natural mientras que los tests unitarios (`tests/lifecycle.test.js`) pueden seguir importando el archivo como módulo sin disparar el arranque.
+  - *Orden Dinámico de Cascada LLM (Agente):* Se respeta la intención del usuario cuando configura `LLM_PROVIDER=groq`, relegando a Gemini a fallback solo si existen claves válidas para él.
+- **Por qué (Justificación humana):** Corrige el fallo de arranque en el despliegue del servidor en producción bajo PM2 y permite el uso transparente de modelos de Groq (como Qwen o Llama) sin colisiones de claves ni caídas silenciosas.
+- **Archivos afectados:**
+  - [src/index.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/index.js)
+  - [src/agent/agent.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/agent/agent.js)
+  - [docs/bitacora.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/docs/bitacora.md)
+
 ## [2026-10-15] Arquitectura de Resiliencia Guardian/Worker y Observabilidad Privada (SDD)
 - **Qué se hizo:**
   - Separación del runtime del bot en un Worker hilo dedicado (`src/runtime/bot-worker.js`) supervisado por un Guardián (`src/runtime/guardian.js`) con protocolo IPC versionado.

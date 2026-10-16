@@ -386,14 +386,25 @@ async function callOpenAICompatibleDirect({ apiKey, apiUrl, modelName, systemIns
 
 export async function callLLM(systemInstruction, promptOrMessages, useTools = false, onDiagnostic = null) {
   // Configuración de proveedores y modelos en cascada
-  const geminiApiKey = process.env.GEMINI_API_KEY || process.env.LLM_API_KEY;
-  const groqApiKey = process.env.GROQ_API_KEY;
-  const openRouterApiKey = process.env.OPENROUTER_API_KEY || process.env.OPEN_ROUTER_API_KEY;
+  const requestedProvider = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
+  const groqApiKey = process.env.GROQ_API_KEY || (requestedProvider === 'groq' ? process.env.LLM_API_KEY : null);
+  const geminiApiKey = process.env.GEMINI_API_KEY || (requestedProvider === 'gemini' ? process.env.LLM_API_KEY : null) || (requestedProvider !== 'groq' && requestedProvider !== 'openrouter' ? process.env.LLM_API_KEY : null);
+  const openRouterApiKey = process.env.OPENROUTER_API_KEY || process.env.OPEN_ROUTER_API_KEY || (requestedProvider === 'openrouter' ? process.env.LLM_API_KEY : null);
 
-  const primaryModel = process.env.LLM_MODEL || 'gemini-3.1-flash-lite';
-  const geminiModels = [primaryModel, 'gemini-2.5-flash', 'gemini-1.5-flash'];
-  const groqModels = ['qwen/qwen3.8-27b', 'llama-3.3-70b-versatile'];
+  const primaryModel = process.env.LLM_MODEL;
+  const geminiModels = [
+    ...(primaryModel && (requestedProvider === 'gemini' || primaryModel.includes('gemini')) ? [primaryModel] : []),
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-1.5-flash'
+  ];
+  const groqModels = [
+    ...(primaryModel && (requestedProvider === 'groq' || primaryModel.includes('qwen') || primaryModel.includes('llama')) ? [primaryModel] : []),
+    'qwen/qwen3.8-27b',
+    'llama-3.3-70b-versatile'
+  ];
   const openRouterModels = [
+    ...(primaryModel && requestedProvider === 'openrouter' ? [primaryModel] : []),
     'qwen/qwen3.8-27b:free',
     'poolside/laguna-s-2.1:free',
     'z-ai/glm-5.2:free',
@@ -427,8 +438,8 @@ export async function callLLM(systemInstruction, promptOrMessages, useTools = fa
 
   const errorsAccumulated = [];
 
-  // TIER 1: Gemini Intra-Provider Fallback
-  if (geminiApiKey) {
+  const executeGemini = async () => {
+    if (!geminiApiKey) return null;
     for (let i = 0; i < geminiModels.length; i++) {
       const model = geminiModels[i];
       try {
@@ -437,7 +448,7 @@ export async function callLLM(systemInstruction, promptOrMessages, useTools = fa
           await onDiagnostic(diagMsg);
         }
 
-        const res = await executeWithRetry(
+        return await executeWithRetry(
           () => callGeminiDirect({
             apiKey: geminiApiKey,
             modelName: model,
@@ -447,25 +458,25 @@ export async function callLLM(systemInstruction, promptOrMessages, useTools = fa
           }),
           { maxRetries: 3, providerName: 'Gemini', modelName: model, onDiagnostic }
         );
-        return res;
       } catch (err) {
         errorsAccumulated.push(`Gemini (${model}): ${err.message}`);
         console.warn(`[Cascade] Modelo Gemini ${model} agotado/fallido:`, err.message);
       }
     }
-  }
+    return null;
+  };
 
-  // TIER 2: Groq Inter-Provider Fallback
-  if (groqApiKey) {
+  const executeGroq = async () => {
+    if (!groqApiKey) return null;
     for (const model of groqModels) {
       try {
-        const diagMsg = `[🔄 Gemini no disponible. Cambiando a proveedor fallback: Groq (${model})...]`;
-        console.warn(`[Cascade] ${diagMsg}`);
-        if (onDiagnostic) {
+        if (requestedProvider !== 'groq' && onDiagnostic) {
+          const diagMsg = `[🔄 Gemini no disponible. Cambiando a proveedor fallback: Groq (${model})...]`;
+          console.warn(`[Cascade] ${diagMsg}`);
           try { await onDiagnostic(diagMsg); } catch (_) {}
         }
 
-        const res = await executeWithRetry(
+        return await executeWithRetry(
           () => callOpenAICompatibleDirect({
             apiKey: groqApiKey,
             apiUrl: 'https://api.groq.com/openai/v1/chat/completions',
@@ -477,25 +488,25 @@ export async function callLLM(systemInstruction, promptOrMessages, useTools = fa
           }),
           { maxRetries: 3, providerName: 'Groq', modelName: model, onDiagnostic }
         );
-        return res;
       } catch (err) {
         errorsAccumulated.push(`Groq (${model}): ${err.message}`);
         console.warn(`[Cascade] Modelo Groq ${model} fallido:`, err.message);
       }
     }
-  }
+    return null;
+  };
 
-  // TIER 3: OpenRouter Free Tier Fallback
-  if (openRouterApiKey) {
+  const executeOpenRouter = async () => {
+    if (!openRouterApiKey) return null;
     for (const model of openRouterModels) {
       try {
-        const diagMsg = `[🔄 Groq no disponible. Cambiando a proveedor fallback: OpenRouter Free Tier (${model})...]`;
-        console.warn(`[Cascade] ${diagMsg}`);
-        if (onDiagnostic) {
+        if (requestedProvider !== 'openrouter' && onDiagnostic) {
+          const diagMsg = `[🔄 Proveedor previo no disponible. Cambiando a fallback: OpenRouter Free Tier (${model})...]`;
+          console.warn(`[Cascade] ${diagMsg}`);
           try { await onDiagnostic(diagMsg); } catch (_) {}
         }
 
-        const res = await executeWithRetry(
+        return await executeWithRetry(
           () => callOpenAICompatibleDirect({
             apiKey: openRouterApiKey,
             apiUrl: 'https://openrouter.ai/api/v1/chat/completions',
@@ -507,12 +518,23 @@ export async function callLLM(systemInstruction, promptOrMessages, useTools = fa
           }),
           { maxRetries: 3, providerName: 'OpenRouter', modelName: model, onDiagnostic }
         );
-        return res;
       } catch (err) {
         errorsAccumulated.push(`OpenRouter (${model}): ${err.message}`);
         console.warn(`[Cascade] Modelo OpenRouter ${model} fallido:`, err.message);
       }
     }
+    return null;
+  };
+
+  const providerOrder = requestedProvider === 'groq'
+    ? [executeGroq, executeGemini, executeOpenRouter]
+    : requestedProvider === 'openrouter'
+      ? [executeOpenRouter, executeGemini, executeGroq]
+      : [executeGemini, executeGroq, executeOpenRouter];
+
+  for (const runProvider of providerOrder) {
+    const result = await runProvider();
+    if (result) return result;
   }
 
   // Si todos los proveedores agotaron sus intentos
