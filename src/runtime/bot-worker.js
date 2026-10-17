@@ -252,17 +252,24 @@ async function runWorker() {
   send('ready');
 
   if (!bot) {
+    console.warn('[Worker] No se pudo inicializar el bot (TELEGRAM_BOT_TOKEN no configurada).');
     send('unconfigured');
     return;
   }
 
-  attachPollingReadiness(bot, () => send('poll-success'));
+  attachPollingReadiness(bot, () => {
+    console.log('[Worker] Telegram getUpdates confirmado exitoso.');
+    send('poll-success');
+  });
 
   try {
+    console.log('[Worker] Lanzando polling de Telegram con bot.launch()...');
     await bot.launch();
+    console.log('[Worker] bot.launch() ha terminado.');
     if (!intentionalShutdown) send('fatal', { reason: 'polling-ended' });
     else send('polling-stopped');
   } catch (error) {
+    console.error('[Worker] Error durante bot.launch():', error);
     if (intentionalShutdown) {
       send('polling-stopped');
       return;
@@ -272,7 +279,8 @@ async function runWorker() {
 }
 
 if (!isMainThread && parentPort) {
-  void runWorker().catch(() => {
+  void runWorker().catch((err) => {
+    console.error('[Worker] Error fatal no capturado en runWorker():', err);
     send('fatal', { reason: 'startup-failed' });
   });
 }

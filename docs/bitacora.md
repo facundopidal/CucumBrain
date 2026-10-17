@@ -1,5 +1,21 @@
 # Bitácora de Cambios - CucumBrain
 
+## [2026-10-17] Reenvío de Streams de Salida del Worker (stdout/stderr) y Diagnóstico Transparente en Guardian
+- **Qué se hizo:**
+  - Se corrigió el sumidero ciego de logs en [src/runtime/guardian.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/runtime/guardian.js): al instanciar el hilo worker con `{ stdout: true, stderr: true }`, los chunks eran consumidos internamente para métricas pero nunca se canalizaban a `process.stdout` ni `process.stderr`, silenciando por completo todos los logs de error, advertencia y actividad en PM2. Ahora se reenvían en tiempo real.
+  - Se aumentó el presupuesto por defecto de `startupTimeoutMs` en el Guardian de 10s a 60s, evitando que latencias de red en el arranque de Telegram (`getMe`, `deleteWebhook`, primer `getUpdates`) disparen cierres fatales y bucles de reinicio en PM2.
+  - Se agregaron trazas explícitas en [src/index.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/index.js), [src/runtime/guardian.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/runtime/guardian.js) y [src/runtime/bot-worker.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/runtime/bot-worker.js) para informar de cada etapa del ciclo de vida (arranque, estado READY, polling confirmado, errores).
+  - Cobertura de 17/17 pruebas pasando en verde.
+- **Decisiones clave y autoría:**
+  - *Canalización No Bloqueante de Salida de Hilos (Agente):* Preserva el aislamiento del supervisor pero expone íntegramente la salida estándar y de errores al proceso padre gestionado por PM2.
+  - *Ventana de Gracia Ampliada para Telegram (Agente):* Previene que variaciones normales de latencia en entornos Home Lab corten el proceso supervisor prematuramente.
+- **Por qué (Justificación humana):** Resuelve el problema donde PM2 mostraba archivos de log completamente vacíos y permite visualizar en vivo la causa exacta de cualquier problema de conexión o configuración en el servidor.
+- **Archivos afectados:**
+  - [src/index.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/index.js)
+  - [src/runtime/guardian.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/runtime/guardian.js)
+  - [src/runtime/bot-worker.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/runtime/bot-worker.js)
+  - [docs/bitacora.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/docs/bitacora.md)
+
 ## [2026-10-15] Corrección de Detección de Entrypoint en PM2 y Soporte Dinámico de LLM_PROVIDER (Fast-Track)
 - **Qué se hizo:**
   - Se modificó la detección de punto de entrada en [src/index.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/index.js) (`isDirectExecution`) para contemplar `process.env.pm_id` y `process.env.pm_exec_path`. Esto resuelve el problema por el cual PM2 (al usar internamente `ProcessContainerFork.js` en modo fork) hacía que `process.argv[1]` no coincidiera con `import.meta.url`, provocando que el supervisor no arrancara.

@@ -6,6 +6,7 @@ export { startGuardian };
 
 async function startFromEntrypoint() {
   await import('dotenv/config');
+  console.log('[Entrypoint] CucumBrain iniciando con Guardian supervisor...');
   startGuardian();
 }
 
@@ -25,7 +26,8 @@ function isDirectExecution() {
 }
 
 if (isDirectExecution()) {
-  void startFromEntrypoint().catch(() => {
+  void startFromEntrypoint().catch((err) => {
+    console.error('[Entrypoint] Error fatal en arranque:', err);
     process.exitCode = 1;
     setTimeout(() => process.exit(1), 5_000).unref?.();
   });

@@ -96,7 +96,7 @@ function validTestScenario(scenario) {
 }
 
 export function startGuardian(options = {}) {
-  const startupTimeoutMs = Number.isFinite(options.startupTimeoutMs) ? options.startupTimeoutMs : 10_000;
+  const startupTimeoutMs = Number.isFinite(options.startupTimeoutMs) ? options.startupTimeoutMs : 60_000;
   const shutdownGraceMs = Number.isFinite(options.shutdownGraceMs) ? options.shutdownGraceMs : LIFECYCLE_BUDGETS.cleanupMs;
   const cleanupMs = Number.isFinite(options.cleanupMs) ? options.cleanupMs : LIFECYCLE_BUDGETS.cleanupMs;
   const testScenario = validTestScenario(options.testScenario);
@@ -200,6 +200,7 @@ export function startGuardian(options = {}) {
 
   function fatalShutdown(reason) {
     if (fatal || intentionalShutdown) return;
+    console.error(`[Guardian] Apagado fatal: ${reason}`);
     fatal = true;
     workerStopping = true;
     process.exitCode = 1;
@@ -343,11 +344,13 @@ export function startGuardian(options = {}) {
       return;
     }
     if (packet.type === 'ready') {
+      console.log('[Guardian] Worker reportó estado READY.');
       health.markWorkerReady();
       recordStatus('startup', 'ready');
       return;
     }
     if (packet.type === 'unconfigured') {
+      console.warn('[Guardian] Worker reportó que el bot no está configurado (verificar TELEGRAM_BOT_TOKEN en .env).');
       clearTimeout(startupTimer);
       health.markWorkerStopped();
       recordStatus('startup', 'unconfigured');
@@ -363,6 +366,7 @@ export function startGuardian(options = {}) {
       health.pollSucceeded();
       clearTimeout(startupTimer);
       if (!wasOnline) {
+        console.log('[Guardian] Polling con Telegram establecido y activo.');
         recordStatus('polling', 'online', randomUUID());
       }
       return;
@@ -377,6 +381,7 @@ export function startGuardian(options = {}) {
       return;
     }
     if (packet.type === 'fatal') {
+      console.error(`[Guardian] Worker reportó error fatal: ${packet.reason}`);
       fatalShutdown(packet.reason);
       return;
     }
@@ -387,6 +392,7 @@ export function startGuardian(options = {}) {
     workerGeneration += 1;
     workerCapability = randomCapability();
     workerStopping = false;
+    console.log(`[Guardian] Iniciando bot worker (generación ${workerGeneration})...`);
     const workerData = {
       protocolVersion: IPC_PROTOCOL_VERSION,
       generation: workerGeneration,
@@ -400,11 +406,12 @@ export function startGuardian(options = {}) {
       return;
     }
     let capturedOutputBytes = 0;
-    const drain = (stream) => stream?.on('data', (chunk) => {
+    const drain = (stream, target) => stream?.on('data', (chunk) => {
       capturedOutputBytes = Math.min(64 * 1024, capturedOutputBytes + chunk.length);
+      try { target?.write(chunk); } catch {}
     });
-    drain(worker.stdout);
-    drain(worker.stderr);
+    drain(worker.stdout, process.stdout);
+    drain(worker.stderr, process.stderr);
     const expectedGeneration = workerGeneration;
     const expectedCapability = workerCapability;
     worker.on('message', (packet) => handleWorkerMessage(packet, expectedGeneration, expectedCapability));
