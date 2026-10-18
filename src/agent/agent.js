@@ -381,35 +381,38 @@ async function callOpenAICompatibleDirect({ apiKey, apiUrl, modelName, systemIns
 }
 
 // -------------------------------------------------------------
-// CASCADA MULTI-PROVEEDOR COMPLETA (Gemini -> Groq -> OpenRouter)
+// CASCADA MULTI-PROVEEDOR COMPLETA (OpenRouter -> Groq -> Gemini)
 // -------------------------------------------------------------
 
 export async function callLLM(systemInstruction, promptOrMessages, useTools = false, onDiagnostic = null) {
   // Configuración de proveedores y modelos en cascada
-  const requestedProvider = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
+  const requestedProvider = (process.env.LLM_PROVIDER || 'openrouter').toLowerCase();
+  const openRouterApiKey = process.env.OPENROUTER_API_KEY || process.env.OPEN_ROUTER_API_KEY || (requestedProvider === 'openrouter' ? process.env.LLM_API_KEY : null);
   const groqApiKey = process.env.GROQ_API_KEY || (requestedProvider === 'groq' ? process.env.LLM_API_KEY : null);
   const geminiApiKey = process.env.GEMINI_API_KEY || (requestedProvider === 'gemini' ? process.env.LLM_API_KEY : null) || (requestedProvider !== 'groq' && requestedProvider !== 'openrouter' ? process.env.LLM_API_KEY : null);
-  const openRouterApiKey = process.env.OPENROUTER_API_KEY || process.env.OPEN_ROUTER_API_KEY || (requestedProvider === 'openrouter' ? process.env.LLM_API_KEY : null);
 
   const primaryModel = process.env.LLM_MODEL;
-  const geminiModels = [
-    ...(primaryModel && (requestedProvider === 'gemini' || primaryModel.includes('gemini')) ? [primaryModel] : []),
-    'gemini-3.1-flash-lite',
-    'gemini-2.5-flash',
-    'gemini-1.5-flash'
-  ];
-  const groqModels = [
-    ...(primaryModel && (requestedProvider === 'groq' || primaryModel.includes('qwen') || primaryModel.includes('llama')) ? [primaryModel] : []),
-    'qwen/qwen3.8-27b',
-    'llama-3.3-70b-versatile'
-  ];
   const openRouterModels = [
     ...(primaryModel && requestedProvider === 'openrouter' ? [primaryModel] : []),
-    'qwen/qwen3.8-27b:free',
     'poolside/laguna-s-2.1:free',
     'z-ai/glm-5.2:free',
+    'meta-llama/llama-3.3-70b-instruct:free',
     'dots-studio/dots-3-note-preview:free'
-  ];
+  ].filter((m, idx, arr) => arr.indexOf(m) === idx);
+
+  const groqModels = [
+    ...(primaryModel && (requestedProvider === 'groq' || primaryModel.includes('llama') || primaryModel.includes('qwen')) ? [primaryModel] : []),
+    'llama-3.1-8b-instant',
+    'llama-3.3-70b-versatile',
+    'qwen/qwen3.8-27b'
+  ].filter((m, idx, arr) => arr.indexOf(m) === idx);
+
+  const geminiModels = [
+    ...(primaryModel && (requestedProvider === 'gemini' || primaryModel.includes('gemini')) ? [primaryModel] : []),
+    'gemini-3.8-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite'
+  ].filter((m, idx, arr) => arr.indexOf(m) === idx);
 
   // Normalizar representación de entrada a Gemini Contents y OpenAI Messages
   let geminiContents;
@@ -443,9 +446,13 @@ export async function callLLM(systemInstruction, promptOrMessages, useTools = fa
     for (let i = 0; i < geminiModels.length; i++) {
       const model = geminiModels[i];
       try {
-        if (i > 0 && onDiagnostic) {
+        if (requestedProvider !== 'gemini' && i === 0 && onDiagnostic) {
+          const diagMsg = `[🔄 Proveedor previo no disponible. Cambiando a fallback: Gemini (${model})...]`;
+          console.warn(`[Cascade] ${diagMsg}`);
+          try { await onDiagnostic(diagMsg); } catch (_) {}
+        } else if (i > 0 && onDiagnostic) {
           const diagMsg = `[🔄 Cambiando a modelo Gemini secundario: ${model}...]`;
-          await onDiagnostic(diagMsg);
+          try { await onDiagnostic(diagMsg); } catch (_) {}
         }
 
         return await executeWithRetry(
@@ -468,11 +475,15 @@ export async function callLLM(systemInstruction, promptOrMessages, useTools = fa
 
   const executeGroq = async () => {
     if (!groqApiKey) return null;
-    for (const model of groqModels) {
+    for (let i = 0; i < groqModels.length; i++) {
+      const model = groqModels[i];
       try {
-        if (requestedProvider !== 'groq' && onDiagnostic) {
-          const diagMsg = `[🔄 Gemini no disponible. Cambiando a proveedor fallback: Groq (${model})...]`;
+        if (requestedProvider !== 'groq' && i === 0 && onDiagnostic) {
+          const diagMsg = `[🔄 Proveedor previo no disponible. Cambiando a fallback: Groq (${model})...]`;
           console.warn(`[Cascade] ${diagMsg}`);
+          try { await onDiagnostic(diagMsg); } catch (_) {}
+        } else if (i > 0 && onDiagnostic) {
+          const diagMsg = `[🔄 Cambiando a modelo Groq secundario: ${model}...]`;
           try { await onDiagnostic(diagMsg); } catch (_) {}
         }
 
@@ -498,11 +509,15 @@ export async function callLLM(systemInstruction, promptOrMessages, useTools = fa
 
   const executeOpenRouter = async () => {
     if (!openRouterApiKey) return null;
-    for (const model of openRouterModels) {
+    for (let i = 0; i < openRouterModels.length; i++) {
+      const model = openRouterModels[i];
       try {
-        if (requestedProvider !== 'openrouter' && onDiagnostic) {
+        if (requestedProvider !== 'openrouter' && i === 0 && onDiagnostic) {
           const diagMsg = `[🔄 Proveedor previo no disponible. Cambiando a fallback: OpenRouter Free Tier (${model})...]`;
           console.warn(`[Cascade] ${diagMsg}`);
+          try { await onDiagnostic(diagMsg); } catch (_) {}
+        } else if (i > 0 && onDiagnostic) {
+          const diagMsg = `[🔄 Cambiando a modelo OpenRouter secundario: ${model}...]`;
           try { await onDiagnostic(diagMsg); } catch (_) {}
         }
 
@@ -527,10 +542,10 @@ export async function callLLM(systemInstruction, promptOrMessages, useTools = fa
   };
 
   const providerOrder = requestedProvider === 'groq'
-    ? [executeGroq, executeGemini, executeOpenRouter]
-    : requestedProvider === 'openrouter'
-      ? [executeOpenRouter, executeGemini, executeGroq]
-      : [executeGemini, executeGroq, executeOpenRouter];
+    ? [executeGroq, executeOpenRouter, executeGemini]
+    : requestedProvider === 'gemini'
+      ? [executeGemini, executeOpenRouter, executeGroq]
+      : [executeOpenRouter, executeGroq, executeGemini];
 
   for (const runProvider of providerOrder) {
     const result = await runProvider();

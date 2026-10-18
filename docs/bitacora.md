@@ -1,5 +1,23 @@
 # Bitácora de Cambios - CucumBrain
 
+## [2026-10-18] Configuración de Cascada LLM con Poolside por Defecto y Fallbacks en OpenRouter, Groq y Gemini (Fast-Track)
+- **Qué se hizo:**
+  - Se configuró OpenRouter como proveedor por defecto (`LLM_PROVIDER=openrouter`), priorizando el modelo gratuito `poolside/laguna-s-2.1:free`, seguido de alternativas gratuitas (`z-ai/glm-5.2:free`, `meta-llama/llama-3.3-70b-instruct:free`, `dots-studio/dots-3-note-preview:free`).
+  - Se actualizó el fallback secundario hacia Groq priorizando `llama-3.1-8b-instant` (cuyo límite de tokens por minuto de 30.000 ITPM permite asimilar cómodamente los ~8.5k tokens del contexto RAG de notas de CucumBrain, a diferencia del límite estricto de 7.000 ITPM en `qwen/qwen3.8-27b` que disparaba errores HTTP 413).
+  - Se configuró Gemini como fallback terciario y se actualizaron sus modelos a versiones activas (`gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`), retirando versiones obsoletas que retornaban 404/503.
+  - Se ajustó el orden de ejecución en `providerOrder` dentro de [src/agent/agent.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/agent/agent.js) para reflejar: `OpenRouter -> Groq -> Gemini`, junto con mensajes diagnósticos claros de transición entre proveedores.
+  - Se actualizó [.env.example](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/.env.example) con la nueva configuración predeterminada y las variables de entorno para cascada multi-proveedor.
+  - Verificación completa con la suite automatizada: 17/17 tests aprobados en verde.
+- **Decisiones clave y autoría:**
+  - *Poolside como Modelo Principal Gratuito (Usuario):* Solicitud directa del usuario de emplear `poolside/laguna-s-2.1:free` como modelo principal por su velocidad y soporte probado de llamadas a funciones (tool-calling).
+  - *Jerarquía de Cascada OpenRouter -> Groq -> Gemini (Usuario/Agente):* Cumple la preferencia de consumir modelos gratuitos disponibles antes de pasar a la cuota de Gemini, evitando caídas por saturación o límites de TPM.
+  - *Priorización de Llama 3.1 8B Instant en Groq (Agente):* Elección técnica motivada por el límite de 30k ITPM frente al límite de 7k ITPM de Qwen, previniendo errores HTTP 413 ante prompts con contexto RAG extenso.
+- **Por qué (Justificación humana):** Ofrece máxima tolerancia a fallos y alta disponibilidad sin coste, garantizando que el bot continúe respondiendo y ejecutando tools incluso ante saturación o cortes de API en cualquiera de los proveedores.
+- **Archivos afectados:**
+  - [src/agent/agent.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/agent/agent.js)
+  - [.env.example](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/.env.example)
+  - [docs/bitacora.md](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/docs/bitacora.md)
+
 ## [2026-10-17] Reenvío de Streams de Salida del Worker (stdout/stderr) y Diagnóstico Transparente en Guardian
 - **Qué se hizo:**
   - Se corrigió el sumidero ciego de logs en [src/runtime/guardian.js](file:///C:/Users/Win10/Desktop/Programacion/Dev/CucumBrain/src/runtime/guardian.js): al instanciar el hilo worker con `{ stdout: true, stderr: true }`, los chunks eran consumidos internamente para métricas pero nunca se canalizaban a `process.stdout` ni `process.stderr`, silenciando por completo todos los logs de error, advertencia y actividad en PM2. Ahora se reenvían en tiempo real.
